@@ -3,7 +3,7 @@
 // Copyright (C) 2020 Alexander Schrode
 mod network;
 pub mod pubsubmessage;
-
+pub mod pubsubconnection;
 pub mod prelude {
     pub use opcua_types::status_code::StatusCode;
     pub use opcua_types::{DataValue, Variant, DateTime};

@@ -1,9 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2020 Alexander Schrode
-
-use crate::network::{UadpNetworkConnection, UadpNetworkReciver};
-use log::{error, trace, warn};
+use log::{trace, warn};
 use opcua_types::status_code::StatusCode;
 use opcua_types::EncodingResult;
 use opcua_types::{
@@ -11,7 +9,6 @@ use opcua_types::{
 };
 use opcua_types::{process_decode_io_result, read_u16, read_u32, read_u64, read_u8};
 use opcua_types::{process_encode_io_result, write_u16, write_u32, write_u8};
-use std::io::Cursor;
 use std::io::{Read, Write};
 /// Uadp Message flags See OPC Unified Architecture, Part 14 7.2.2.2.2
 struct MessageHeaderFlags(u32);
@@ -630,7 +627,7 @@ impl UadpNetworkMessage {
         UadpNetworkMessage{header, group_header, dataset_payload, timestamp, picoseconds, promoted_fields, dataset}
     }
 
-    fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
+    pub fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
         let mut sz = self.header.encode(stream, self)?;
         if let Some(v) = &self.group_header {
             sz += v.encode(stream)?;
@@ -662,7 +659,7 @@ impl UadpNetworkMessage {
         Ok(sz)
     }
 
-    fn decode<S: Read>(c: &mut S, decoding_options: &DecodingLimits) -> EncodingResult<Self> {
+    pub fn decode<S: Read>(c: &mut S, decoding_options: &DecodingLimits) -> EncodingResult<Self> {
         let (header, flags) = UadpHeader::decode(c, decoding_options)?;
         let group_header = if flags.contains(MessageHeaderFlags::GROUP_HEADER_EN) {
             Some(UadpGroupeHeader::decode(c, decoding_options)?)
@@ -732,86 +729,6 @@ impl UadpNetworkMessage {
     }
 }
 
-pub enum PubSubTransportProfil {
-    UdpUadp, // http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp
-}
-
-
-#[allow(dead_code)]
-pub struct PubSubConnection{
-    profile: PubSubTransportProfil,
-    url: String,
-    publisher_id: Variant,
-    connection: UadpNetworkConnection
-}
-
-pub struct PubSubReciver{
-    recv: UadpNetworkReciver,
-}
-
-impl PubSubReciver{
-    /// Recive a UadpNetworkMessage
-    pub fn recive_msg(&self) -> Result<UadpNetworkMessage, StatusCode>{
-        let data = self.recv.recive_msg()?;
-
-        let mut stream = Cursor::new(&data);
-        let decoding_options = DecodingLimits::default();
-    
-        let msg = UadpNetworkMessage::decode(&mut stream, &decoding_options)?;
-        Ok(msg)
-    }
-}
-
-impl PubSubConnection {
-    /// accepts
-    pub fn new(url: String, publisher_id: Variant, ) -> Result<Self, StatusCode> {
-        //@TODO convert string von URI zu URL and Check
-        let profile = PubSubTransportProfil::UdpUadp;
-        // Check if publisher_id is valid the specs only allow UIntegers and String as id!
-        match publisher_id {
-            Variant::String(_)
-            | Variant::Byte(_)
-            | Variant::UInt16(_)
-            | Variant::UInt32(_)
-            | Variant::UInt64(_) => {}
-            _ => return Err(StatusCode::BadTypeMismatch),
-        }
-        let connection = match UadpNetworkConnection::new(&url) {
-            Ok(con) => con,
-            Err(e) => {
-                error!("Creating UadpNetworkconnection: {:-?}", e);
-                return Err(StatusCode::BadCommunicationError)
-            }
-        };
-        return Ok(PubSubConnection {
-            profile,
-            url,
-            publisher_id,
-            connection
-        });
-    }
-    /// Create a new UadpReciver 
-    pub fn create_reciver(&self) -> Result<PubSubReciver, StatusCode>{
-        let recv = match self.connection.create_reciver() {
-            Ok(r) => r,
-            Err(_) => return Err(StatusCode::BadCommunicationError),
-        };
-        Ok(PubSubReciver{recv})
-    }
-    /// Send a UadpMessage 
-    pub fn send(self: &Self, msg: &mut UadpNetworkMessage) -> Result<(), StatusCode>{
-        let mut c = Vec::new();
-        msg.header.publisher_id = Some(self.publisher_id.clone());
-        msg.encode(&mut c)?;
-        match self.connection.send(&c){
-            Ok(_) => Ok(()),
-            Err(err) => {
-                error!("Uadp error sending message - {:?}", err);
-                Err(StatusCode::BadCommunicationError)
-            }
-        }
-    }
-}
 
 
 
@@ -819,6 +736,7 @@ impl PubSubConnection {
 #[cfg(test)]
 mod tests{
     use super::*;
+    use std::io::Cursor;
     #[test]
     fn encode_decode_test() -> Result<(), StatusCode>{
         let mut msg = UadpNetworkMessage::new();

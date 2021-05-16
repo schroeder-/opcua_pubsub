@@ -1,5 +1,6 @@
 use opcua_pubsub::prelude::*;
-use opcua_pubsub::pubsubmessage::{UadpNetworkMessage, PubSubConnection, UadpDataSetMessage, UadpMessageType};
+use opcua_pubsub::pubsubconnection::PubSubConnection;
+use opcua_pubsub::pubsubmessage::{UadpNetworkMessage, UadpDataSetMessage, UadpMessageType};
 use std::{thread};
 
 #[test]

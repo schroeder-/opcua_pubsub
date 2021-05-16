@@ -1,5 +1,6 @@
 use opcua_pubsub::prelude::*;
-use opcua_pubsub::pubsubmessage::{PubSubConnection, UadpNetworkMessage, UadpMessageType};
+use opcua_pubsub::pubsubconnection::PubSubConnection;
+use opcua_pubsub::pubsubmessage::{UadpNetworkMessage, UadpMessageType};
 
 fn got_message(msg: UadpNetworkMessage){
     println!("Got new Message: ");
