@@ -10,33 +10,33 @@ Currently only standalone subscriber and publisher via UADP are supported, see e
 
 # Features
 
-[x] Standalone Pubsub
-[] integrated Subscription
-[] integrated Publisher
+* [x] Standalone Pubsub
+* [] integrated Subscription
+* [] integrated Publisher
 
 ## UADP (Pubsub via Multicast UDP)
 
-[x] UADP Data Messages
-[x] UADP Delta Messages
-[x] UADP Events Messages
-[x] UADP Keepalive Message
-[] UADP Chunked Messages
-[] UADP Discovery
-[] UADP Security
+* [x] UADP Data Messages
+* [x] UADP Delta Messages
+* [x] UADP Events Messages
+* [x] UADP Keepalive Message
+* [] UADP Chunked Messages
+* [] UADP Discovery
+* [] UADP Security
 
 ## Integration Publisher with opcua server
 
-[] PubSubConnection
-[] PublishedDataSet
-[] WriterGroupe
-[] DataSetWriter
+* [] PubSubConnection
+* [] PublishedDataSet
+* [] WriterGroupe
+* [] DataSetWriter
 
 ## Integration Subscriber with opcua client
 
-[] PubSubConnection
-[] SubscripedDataSet
-[] ReaderGroupe
-[] DataSetReader
+* [] PubSubConnection
+* [] SubscripedDataSet
+* [] ReaderGroupe
+* [] DataSetReader
 
 # License
 
