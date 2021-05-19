@@ -1,5 +1,4 @@
 use opcua_pubsub::prelude::*;
-use opcua_pubsub::connection::PubSubConnection;
 use opcua_pubsub::message::{UadpNetworkMessage, UadpMessageType};
 
 fn got_message(msg: UadpNetworkMessage){

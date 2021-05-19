@@ -1,7 +1,6 @@
 
 use opcua_pubsub::prelude::*;
-use opcua_pubsub::connection::{PubSubConnection};
-use opcua_pubsub::message::{UadpNetworkMessage, UadpDataSetMessage, UadpMessageType};
+use opcua_pubsub::message::{UadpNetworkMessage, UadpMessageType, UadpDataSetMessage};
 use std::{thread, time};
 
 fn main() -> Result<(), StatusCode> {

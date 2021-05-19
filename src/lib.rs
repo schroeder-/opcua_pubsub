@@ -10,6 +10,10 @@ pub mod prelude {
     pub use opcua_types::status_code::StatusCode;
     pub use opcua_types::{DataValue, Variant, DateTime, UadpNetworkMessageContentMask, DataSetFieldContentMask, UadpDataSetMessageContentMask};
     pub use opcua_types::string::UAString;
+    pub use crate::connection::{PubSubConnection, PubSubConnectionBuilder};
+    pub use crate::pubdataset::{PublishedDataSet, DataSetFieldBuilder};
+    pub use crate::writer::{DataSetWriterBuilder, WriterGroupeBuilder};
+    pub use crate::{UadpNetworkMessageContentFlags, DataSetFieldContentFlags, UadpDataSetMessageContentFlags};
 }
 
 
