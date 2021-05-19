@@ -9,19 +9,19 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 use log::error;
 
-/// Uadp message configuration which is used to recive/send udp messages 
+/// Uadp message configuration which is used to receive/send udp messages 
 pub struct UadpNetworkConnection {
     send_socket: Socket,
     addr2: socket2::SockAddr,
     addr: SocketAddr,
 }
 
-pub struct UadpNetworkReciver{
+pub struct UadpNetworkReceiver{
     recv_socket: Socket,
 }
 
-impl UadpNetworkReciver{
-    pub fn recive_msg(&self) -> Result<Vec::<u8>, StatusCode>{
+impl UadpNetworkReceiver{
+    pub fn receive_msg(&self) -> Result<Vec::<u8>, StatusCode>{
         let mut buf = [MaybeUninit::new(0u8); 16000];
         match self.recv_socket.recv_from(&mut buf) {
             Ok((len, _remote_addr)) => {
@@ -52,10 +52,10 @@ impl UadpNetworkConnection {
             send_socket, addr: addr, addr2: socket2::SockAddr::from(addr)})
     }
 
-    // creates a reciver for udp messages
-    pub fn create_reciver(&self) -> std::io::Result<UadpNetworkReciver>{
+    // creates a receiver for udp messages
+    pub fn create_receiver(&self) -> std::io::Result<UadpNetworkReceiver>{
         let recv_socket =  join_multicast(self.addr)?;
-        Ok(UadpNetworkReciver{recv_socket})
+        Ok(UadpNetworkReceiver{recv_socket})
     }
     /// sends a multicast message
     pub fn send(&self, b: &[u8]) -> io::Result<usize>{

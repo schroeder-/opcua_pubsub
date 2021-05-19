@@ -16,3 +16,4 @@ opcua-core="0.8.0"
 opcua-console-logging = "0.8.0"
 log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
+bitflags = "1.2.1"

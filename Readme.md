@@ -9,34 +9,41 @@ The implementation is based on the foundation of the crate [opcua](https://githu
 Currently only standalone subscriber and publisher via UADP are supported, see examples standalone_subscriber and standalone_publisher. The subscriber is tested against [open62541](https://open62541.org/) 
 
 # Features
-
-* [x] Standalone Pubsub
-* [] integrated Subscription
-* [] integrated Publisher
-
+* [x] Pubsub Messages
+* [ ] Standalone Pubsub
+* [x] integrated Subscription
+* [ ] integrated Publisher
+* [ ] Tokio support
 ## UADP (Pubsub via Multicast UDP)
 
 * [x] UADP Data Messages
 * [x] UADP Delta Messages
 * [x] UADP Events Messages
 * [x] UADP Keepalive Message
-* [] UADP Chunked Messages
-* [] UADP Discovery
-* [] UADP Security
+* [ ] UADP Chunked Messages
+* [ ] UADP Discovery
+* [ ] UADP Security
 
 ## Integration Publisher with opcua server
 
-* [] PubSubConnection
-* [] PublishedDataSet
-* [] WriterGroupe
-* [] DataSetWriter
+* [x] PubSubConnection
+* [x] PublishedDataSet
+* [x] WriterGroupe
+* [x] DataSetWriter
+* [ ] Information Model
 
 ## Integration Subscriber with opcua client
 
-* [] PubSubConnection
-* [] SubscripedDataSet
-* [] ReaderGroupe
-* [] DataSetReader
+* [ ] PubSubConnection
+* [ ] SubscripedDataSet
+* [ ] ReaderGroupe
+* [ ] DataSetReader
+* [ ] Information Model
+
+## WriterGroupe
+* [ ] MessageOrdering
+* [ ] Raw Structures
+* [ ] KeepAlive
 
 # License
 

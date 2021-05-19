@@ -7,7 +7,20 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Cargo subscribe launch",
+            "name": "Cargo publisher launch",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=publisher"
+                ]
+            },
+            "program": "${cargo:program}",
+            "args": []
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Cargo subscribemsg launch",
             "cargo": {
                 "args": [
                     "build",
@@ -20,7 +33,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Cargo publisher launch",
+            "name": "Cargo publishermsg launch",
             "cargo": {
                 "args": [
                     "build",

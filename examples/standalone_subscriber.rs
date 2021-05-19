@@ -80,12 +80,12 @@ fn got_message(msg: UadpNetworkMessage){
 
 fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
-    let url = "239.0.0.1:4840"; // opc.udp://239.0.0.1:4840/
+    let url = "224.0.0.22:4840"; // opc.udp://239.0.0.1:4840/
                                 //let url = "224.0.0.22:4840";
-    let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002))?;
-    let reciver = pubsub.create_reciver()?;
+    let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), None)?;
+    let receiver = pubsub.create_receiver()?;
     loop{
-        match reciver.recive_msg() {
+        match receiver.receive_msg() {
             Ok(msg) => got_message(msg),
             Err(e) => return Err(e)
         };

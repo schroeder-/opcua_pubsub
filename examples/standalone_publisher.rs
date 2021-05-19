@@ -8,7 +8,7 @@ fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     let url = "239.0.0.1:4840"; // opc.udp://239.0.0.1:4840/
                                 //let url = "224.0.0.22:4840";
-    let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002))?;
+    let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), None)?;
     let strs = vec!{
         "ALFA",
         "BRAVO",

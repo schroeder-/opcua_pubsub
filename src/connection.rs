@@ -6,17 +6,22 @@ use opcua_types::string::UAString;
 use opcua_types::Variant;
 use opcua_types::status_code::StatusCode;
 use opcua_types::DecodingLimits;
-use crate::network::{UadpNetworkConnection, UadpNetworkReciver};
-use crate::pubsubmessage::UadpNetworkMessage;
-use opcua_core::comms::url::server_url_from_endpoint_url;
-use log::{error};
+use opcua_types::{DataValue, ConfigurationVersionDataType};
+use opcua_server::address_space::AddressSpace;
+use crate::network::{UadpNetworkConnection, UadpNetworkReceiver};
+use crate::message::UadpNetworkMessage;
+use crate::writer::WriterGroupe;
+use crate::pubdataset::{PublishedDataSet, DataSetInfo, Promoted};
+use log::{error, warn};
 use std::io::Cursor;
+use std::sync::{Arc, RwLock};
 
+#[allow(dead_code)]
 pub struct PubSubConnectionBuilder{
     name: UAString,
     url: UAString,
     enabled: bool,
-    publisher_id: Variant,
+    publisher_id: Variant
 }
 
 
@@ -30,17 +35,21 @@ pub struct PubSubConnection{
     profile: PubSubTransportProfil,
     url: String,
     publisher_id: Variant,
-    connection: UadpNetworkConnection
+    connection: UadpNetworkConnection,
+    datasets: Vec<PublishedDataSet>,
+    writer: Vec<WriterGroupe>,
+    network_message_no: u16,
+    address_space: Arc<RwLock<AddressSpace>>
 }
 
-pub struct PubSubReciver{
-    recv: UadpNetworkReciver,
+pub struct PubSubReceiver{
+    recv: UadpNetworkReceiver,
 }
 
-impl PubSubReciver{
-    /// Recive a UadpNetworkMessage
-    pub fn recive_msg(&self) -> Result<UadpNetworkMessage, StatusCode>{
-        let data = self.recv.recive_msg()?;
+impl PubSubReceiver{
+    /// Receive a UadpNetworkMessage
+    pub fn receive_msg(&self) -> Result<UadpNetworkMessage, StatusCode>{
+        let data = self.recv.receive_msg()?;
 
         let mut stream = Cursor::new(&data);
         let decoding_options = DecodingLimits::default();
@@ -50,15 +59,17 @@ impl PubSubReciver{
     }
 }
 
+
+
 impl PubSubConnection {
     /// accepts
-    pub fn new(url: String, publisher_id: Variant,) -> Result<Self, StatusCode> {
+    pub fn new(url: String, publisher_id: Variant, address_space: Option<Arc<RwLock<AddressSpace>>>) -> Result<Self, StatusCode> {
         //@TODO check for correct scheme!! (opc.udp://xxxx)
         //      currently every scheme is changed to udpuadp
-        let url = match server_url_from_endpoint_url(&url){
-            Ok(u) => u,
-            Err(_) => return Err(StatusCode::BadServerUriInvalid)
-        };
+        //let url_udp = match (&url){
+        //    Ok(u) => u,
+        //    Err(_) => return Err(StatusCode::BadServerUriInvalid)
+        //};
         let profile = PubSubTransportProfil::UdpUadp;
         // Check if publisher_id is valid the specs only allow UIntegers and String as id!
         match publisher_id {
@@ -76,20 +87,28 @@ impl PubSubConnection {
                 return Err(StatusCode::BadCommunicationError)
             }
         };
+        let addr = match address_space {
+            Some(x) => x,
+            None => Arc::new(RwLock::new(AddressSpace::new()))
+        };
         return Ok(PubSubConnection {
             profile,
             url,
             publisher_id,
-            connection
+            connection,
+            datasets: Vec::new(),
+            writer: Vec::new(),
+            network_message_no: 0,
+            address_space: addr
         });
     }
-    /// Create a new UadpReciver 
-    pub fn create_reciver(&self) -> Result<PubSubReciver, StatusCode>{
-        let recv = match self.connection.create_reciver() {
+    /// Create a new UadpReceiver 
+    pub fn create_receiver(&self) -> Result<PubSubReceiver, StatusCode>{
+        let recv = match self.connection.create_receiver() {
             Ok(r) => r,
             Err(_) => return Err(StatusCode::BadCommunicationError),
         };
-        Ok(PubSubReciver{recv})
+        Ok(PubSubReceiver{recv})
     }
     /// Send a UadpMessage 
     pub fn send(self: &Self, msg: &mut UadpNetworkMessage) -> Result<(), StatusCode>{
@@ -102,6 +121,67 @@ impl PubSubConnection {
                 error!("Uadp error sending message - {:?}", err);
                 Err(StatusCode::BadCommunicationError)
             }
+        }
+    }
+    pub fn add_dataset(&mut self, dataset: PublishedDataSet) {
+        self.datasets.push(dataset);
+    }
+
+    pub fn add_writer_groupe(&mut self, group: WriterGroupe){
+        self.writer.push(group);
+    }
+
+    pub fn poll(&mut self, _timedelta: u64){
+        let mut msgs = Vec::with_capacity(self.writer.len());
+        let mut net_offset = 0;
+        let inf = PubSubDataSetInfo{address_space: &self.address_space, datasets: &self.datasets};
+        for w in &mut self.writer{
+            if w.tick(){
+                if let Some(msg) = w.generate_message(self.network_message_no + net_offset, &self.publisher_id, &inf){
+                    msgs.push((msg, w.writer_group_id));
+                    net_offset += 1;
+                }
+            }
+        }
+        self.network_message_no += net_offset;
+        for (msg, id) in msgs.iter(){
+            let mut c = Vec::new();
+            match msg.encode(&mut c){
+                Ok(_) => {
+                    if let Err(err) = self.connection.send(&c){
+                    error!("Uadp error sending message - {:?}", err);
+                    }
+                },
+                Err(err) => {
+                    error!("Uadp error decoding message WriterGroupe {} - {}", id, err);
+                }
+            }
+        }
+            
+    }
+}
+
+struct PubSubDataSetInfo<'a>{
+    address_space: &'a Arc<RwLock<AddressSpace>>,
+    datasets: &'a Vec<PublishedDataSet>   
+}
+
+impl<'a> DataSetInfo for PubSubDataSetInfo<'a>{
+    fn collect_values(&self, name: &UAString) -> Vec::<(Promoted, DataValue)>{
+        if let Some(ds) = self.datasets.iter().find(|x| &x.name == name){
+            let addr = self.address_space.write().unwrap();
+            ds.get_data(&addr)
+        } else {
+            warn!("DataSet {} not found", name);
+            Vec::new()
+        }
+    }
+    fn get_config_version(&self, name: &UAString) -> ConfigurationVersionDataType{
+        if let Some(ds) = self.datasets.iter().find(|x| &x.name == name){
+            ds.get_config_version()
+        } else {
+            warn!("DataSet {} not found", name);
+            ConfigurationVersionDataType { major_version: 0, minor_version: 0}
         }
     }
 }
@@ -132,8 +212,8 @@ impl PubSubConnectionBuilder{
         self
     }
     
-    pub fn build(&self) -> Result<PubSubConnection, StatusCode>{
-        Ok(PubSubConnection::new(self.url.to_string(), self.publisher_id.clone())?)
+    pub fn build(&self, addr_space: Option<Arc<RwLock<AddressSpace>>>) -> Result<PubSubConnection, StatusCode>{
+        Ok(PubSubConnection::new(self.url.to_string(), self.publisher_id.clone(), addr_space)?)
     }
 }
 

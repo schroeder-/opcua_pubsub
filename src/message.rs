@@ -30,7 +30,7 @@ impl MessageHeaderFlags {
                                                       //   If this flag is not set, the SecurityHeader is omitted.
     const TIMESTAMP_EN: u32 = 0b0010000000000000;
     const PICO_SECONDS_EN: u32 = 0b0100000000000000;
-    const EXTENDED_FALGS_2: u32 = 0b1000000000000000;
+    const EXTENDED_FLAGS_2: u32 = 0b1000000000000000;
     // FlagsExtend2
     const CHUNK: u32 = 0b000010000000000000000;
     const PROMOTEDFIELDS: u32 = 0b000100000000000000000; //Promoted fields can only be sent if the NetworkMessage contains only one DataSetMessage.
@@ -125,7 +125,7 @@ pub enum UadpMessageType {
     KeyDeltaFrameRaw(Vec<(u16, Vec<u8>)>), 
     /// an event which contains the data as variants 
     Event(Vec<Variant>), 
-    /// keepalive message of the publisher
+    /// keep alive message of the publisher
     KeepAlive
 }
 
@@ -172,7 +172,7 @@ impl UadpHeader {
             f |= MessageHeaderFlags::EXTENDED_FLAGS_1;
         }
         if f > 0xFFFF {
-            f |= MessageHeaderFlags::EXTENDED_FALGS_2;
+            f |= MessageHeaderFlags::EXTENDED_FLAGS_2;
         }
         let b = f.to_le_bytes();
         let mut sz: usize = 0;
@@ -215,7 +215,7 @@ impl UadpHeader {
         if f.contains(MessageHeaderFlags::EXTENDED_FLAGS_1) {
             let h2 = read_u8(c)?;
             f.0 += (h2 as u32) << 8;
-            if f.contains(MessageHeaderFlags::EXTENDED_FALGS_2) {
+            if f.contains(MessageHeaderFlags::EXTENDED_FLAGS_2) {
                 let h3 = read_u8(c)?;
                 f.0 += (h3 as u32) << 16;
             }
@@ -346,6 +346,12 @@ impl UadpDataSetMessageHeader {
         }
         if self.pico_seconds.is_some() {
             flags += MessageDataSetFlags::PICOSECONDS;
+        }
+        if self.cfg_minor_version.is_some(){
+            flags += MessageDataSetFlags::CFG_MINOR_VERSION;
+        }
+        if self.cfg_major_version.is_some(){
+            flags += MessageDataSetFlags::CFG_MAJOR_VERSION;
         }
         if flags > 0xFF {
             flags += MessageDataSetFlags::FLAGS2;
@@ -751,5 +757,24 @@ mod tests{
         assert_eq!(dec.timestamp, msg.timestamp);
         assert_eq!(dec.dataset, msg.dataset);
         Ok(())
+    }
+    #[test]
+    fn test_parts() -> Result<(), StatusCode>{
+        let mut msg = UadpNetworkMessage::new();
+        msg.timestamp = Some(opcua_types::DateTime::now());
+        let var = vec!{ Variant::from("Test123"), Variant::from(64)};
+        let mut ds = UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(var));
+        ds.header.cfg_major_version = Some(1234);
+        ds.header.cfg_minor_version = Some(12345);
+        ds.header.time_stamp = Some(DateTime::now());
+        msg.dataset.push(ds);
+        
+        let mut data = Vec::new();
+        msg.encode(&mut data)?;
+        let mut c = Cursor::new(data);
+        let dec = UadpNetworkMessage::decode(&mut c, &DecodingLimits::default())?;
+        assert_eq!(dec.timestamp, msg.timestamp);
+        assert_eq!(dec.dataset, msg.dataset);
+        Ok(()) 
     }
 }

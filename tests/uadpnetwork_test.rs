@@ -35,13 +35,13 @@ fn uadp_message_test() -> Result<(), StatusCode>{
     };
     let mut sended = Vec::new();
     let url = "239.0.0.1:4840";
-    let pubsub = PubSubConnection::new(url.to_string(),  Variant::UInt16(1002))?;
+    let pubsub = PubSubConnection::new(url.to_string(),  Variant::UInt16(1002),  None)?;
     const CNT: usize = 100;
-    let recv = pubsub.create_reciver()?;
+    let recv = pubsub.create_receiver()?;
     let handler = thread::spawn(move || -> Result<Vec::<UadpNetworkMessage>, StatusCode>{
         let mut recived = Vec::new();
         for _ in 0 .. CNT{
-            recived.push(recv.recive_msg()?);
+            recived.push(recv.receive_msg()?);
         }
         Ok(recived)
     });
