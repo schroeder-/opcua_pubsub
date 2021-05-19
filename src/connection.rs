@@ -18,6 +18,8 @@ pub trait PubSubDataSource{
     fn get_pubsub_value(&self, nid: & NodeId) -> Result<DataValue, ()>;
 }
 
+type PubSubDataSourceT = dyn PubSubDataSource + Sync + Send;
+
 pub struct SimpleAddressSpace{
     node_map: HashMap<NodeId, DataValue>
 }
@@ -84,7 +86,7 @@ pub struct PubSubConnection{
     datasets: Vec<PublishedDataSet>,
     writer: Vec<WriterGroupe>,
     network_message_no: u16,
-    data_source: Arc<RwLock<dyn PubSubDataSource>>
+    data_source: Arc<RwLock<PubSubDataSourceT>>
 }
 
 pub struct PubSubReceiver{
@@ -108,7 +110,7 @@ impl PubSubReceiver{
 
 impl PubSubConnection {
     /// accepts
-    pub fn new(url: String, publisher_id: Variant, data_source: Arc<RwLock<dyn PubSubDataSource>>) -> Result<Self, StatusCode> {
+    pub fn new(url: String, publisher_id: Variant, data_source: Arc<RwLock<PubSubDataSourceT>>) -> Result<Self, StatusCode> {
         //@TODO check for correct scheme!! (opc.udp://xxxx)
         //      currently every scheme is changed to udpuadp
         //let url_udp = match (&url){
@@ -203,7 +205,7 @@ impl PubSubConnection {
 }
 
 struct PubSubDataSetInfo<'a>{
-    data_source: &'a Arc<RwLock<dyn PubSubDataSource>>,
+    data_source: &'a Arc<RwLock<PubSubDataSourceT>>,
     datasets: &'a Vec<PublishedDataSet>   
 }
 
@@ -254,7 +256,7 @@ impl PubSubConnectionBuilder{
         self
     }
     
-    pub fn build(&self, data_source: Arc<RwLock<dyn PubSubDataSource>>) -> Result<PubSubConnection, StatusCode>{
+    pub fn build(&self, data_source: Arc<RwLock<PubSubDataSourceT>>) -> Result<PubSubConnection, StatusCode>{
         Ok(PubSubConnection::new(self.url.to_string(), self.publisher_id.clone(), data_source)?)
     }
 }

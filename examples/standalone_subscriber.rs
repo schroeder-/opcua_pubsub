@@ -4,6 +4,9 @@
 use opcua_pubsub::prelude::*;
 use opcua_pubsub::message::{UadpNetworkMessage, UadpMessageType};
 
+/// In this example messages a subscribe and print out.
+/// The handling of the recevied message is up to the user, no logic is provided
+
 fn got_message(msg: UadpNetworkMessage){
     println!("Got new Message: ");
     if let Some(pid) = &msg.header.publisher_id{

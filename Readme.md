@@ -10,7 +10,8 @@ Currently only standalone subscriber and publisher via UADP are supported, see e
 
 # Features
 * [x] Pubsub Messages
-* [ ] Standalone Pubsub
+* [ ] Standalone Subscription
+* [x] Standalone Publisher
 * [x] integrated Subscription
 * [ ] integrated Publisher
 * [ ] Tokio support
@@ -32,7 +33,7 @@ Currently only standalone subscriber and publisher via UADP are supported, see e
 * [x] DataSetWriter
 * [ ] Information Model
 
-## Integration Subscriber with opcua client
+## Integration Subscriber with opcua server
 
 * [ ] PubSubConnection
 * [ ] SubscripedDataSet
@@ -44,6 +45,7 @@ Currently only standalone subscriber and publisher via UADP are supported, see e
 * [ ] MessageOrdering
 * [ ] Raw Structures
 * [ ] KeepAlive
+* [ ] DeltaFrames
 
 # License
 

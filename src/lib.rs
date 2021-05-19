@@ -8,7 +8,7 @@ pub mod pubdataset;
 pub mod writer;
 pub mod prelude {
     pub use opcua_types::status_code::StatusCode;
-    pub use opcua_types::{DataValue, Variant, DateTime, UadpNetworkMessageContentMask, DataSetFieldContentMask, UadpDataSetMessageContentMask};
+    pub use opcua_types::{NodeId, DataValue, Variant, DateTime, UadpNetworkMessageContentMask, DataSetFieldContentMask, UadpDataSetMessageContentMask};
     pub use opcua_types::string::UAString;
     pub use crate::connection::{PubSubConnection, PubSubConnectionBuilder};
     pub use crate::connection::{PubSubDataSource, SimpleAddressSpace};

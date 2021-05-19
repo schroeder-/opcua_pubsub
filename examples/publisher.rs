@@ -57,7 +57,7 @@ fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnecti
     let pubsub = Arc::new(RwLock::new(PubSubConnectionBuilder::new()
         .set_url(url.into())
         .set_publisher_id(Variant::UInt16(2234))
-        .build(Some(server.address_space()))?));
+        .build(server.address_space())?));
     // Create a Published Dataset with the fields to publish
     let dataset_name = "Dataset 1".into();
     let mut dataset = PublishedDataSet::new(dataset_name);
