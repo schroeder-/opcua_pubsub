@@ -1,3 +1,6 @@
+// OPC UA Pubsub implementation for Rust
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (C) 2020 Alexander Schrode
 
 use opcua_pubsub::prelude::*;
 use opcua_pubsub::message::{UadpNetworkMessage, UadpMessageType, UadpDataSetMessage};
@@ -7,7 +10,8 @@ fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     let url = "239.0.0.1:4840"; // opc.udp://239.0.0.1:4840/
                                 //let url = "224.0.0.22:4840";
-    let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), None)?;
+    let data_source = SimpleAddressSpace::new_arc_lock();
+    let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), data_source)?;
     let strs = vec!{
         "ALFA",
         "BRAVO",

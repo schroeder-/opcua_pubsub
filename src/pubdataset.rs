@@ -1,11 +1,13 @@
+// OPC UA Pubsub implementation for Rust
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (C) 2020 Alexander Schrode
 use opcua_types::{ConfigurationVersionDataType, PublishedVariableDataType};
 use opcua_types::NodeId;
 use opcua_types::status_code::StatusCode;
 use opcua_types::{Variant, DataValue};
 use opcua_types::{AttributeId, DeadbandType, DateTime};
 use opcua_types::string::UAString;
-use opcua_server::address_space::AddressSpace;
-
+use crate::connection::PubSubDataSource;
 
 pub struct Promoted(pub bool);
 
@@ -36,8 +38,8 @@ pub struct DataSetFieldBuilder{
 }
 
 impl DataSetField{
-    pub fn get_data(&self, addr: &AddressSpace) -> (Promoted, DataValue){
-        let v = addr.get_variable_value(&self.published_variable_cfg.published_variable);
+    pub fn get_data(&self, addr: & dyn PubSubDataSource ) -> (Promoted, DataValue){
+        let v = addr.get_pubsub_value(&self.published_variable_cfg.published_variable);
         match v {
             Ok(dv) => (Promoted(self.promoted_field), dv),
             Err(_) => {
@@ -118,7 +120,7 @@ impl PublishedDataSet{
         self.dataset_fields.push(dsf);
     }
 
-    pub fn get_data(&self, addr: &AddressSpace) -> Vec::<(Promoted, DataValue)>{
+    pub fn get_data(&self, addr: &dyn PubSubDataSource) -> Vec::<(Promoted, DataValue)>{
         self.dataset_fields.iter().map(|d| d.get_data(addr)).collect()
     }
 }

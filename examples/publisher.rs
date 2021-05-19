@@ -1,3 +1,7 @@
+// OPC UA Pubsub implementation for Rust
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (C) 2020 Alexander Schrode
+
 use opcua_pubsub::prelude::*;
 use opcua_server::prelude::*;
 use std::sync::{Arc, RwLock};

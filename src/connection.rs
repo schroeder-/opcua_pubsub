@@ -3,11 +3,8 @@
 // Copyright (C) 2020 Alexander Schrode
 
 use opcua_types::string::UAString;
-use opcua_types::Variant;
 use opcua_types::status_code::StatusCode;
-use opcua_types::DecodingLimits;
-use opcua_types::{DataValue, ConfigurationVersionDataType};
-use opcua_server::address_space::AddressSpace;
+use opcua_types::{Variant, DecodingLimits, DataValue, ConfigurationVersionDataType, NodeId};
 use crate::network::{UadpNetworkConnection, UadpNetworkReceiver};
 use crate::message::UadpNetworkMessage;
 use crate::writer::WriterGroupe;
@@ -15,6 +12,54 @@ use crate::pubdataset::{PublishedDataSet, DataSetInfo, Promoted};
 use log::{error, warn};
 use std::io::Cursor;
 use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
+
+pub trait PubSubDataSource{
+    fn get_pubsub_value(&self, nid: & NodeId) -> Result<DataValue, ()>;
+}
+
+pub struct SimpleAddressSpace{
+    node_map: HashMap<NodeId, DataValue>
+}
+
+impl SimpleAddressSpace{
+    pub fn new() -> Self{
+        SimpleAddressSpace{ node_map: HashMap::new() }
+    }
+
+    pub fn set_value(& mut self, nid: &NodeId, dv: DataValue){
+        self.node_map.insert(nid.clone(), dv);
+    }
+
+    pub fn remove_value(& mut self, nid: &NodeId){
+        self.node_map.remove(nid);
+    }
+
+    pub fn new_arc_lock() -> Arc<RwLock<Self>>{
+        Arc::new(RwLock::new(SimpleAddressSpace::new()))
+    }
+}
+
+impl PubSubDataSource for SimpleAddressSpace{
+    fn get_pubsub_value(&self, nid: & NodeId) -> Result<DataValue, ()>{
+        match self.node_map.get(nid){
+            Some(v) => Ok(v.clone()),
+            None => Err(())
+        }
+    }
+}
+
+#[cfg(feature  = "server-integration")]
+use opcua_server::address_space::AddressSpace;
+
+#[cfg(feature = "server-integration")]
+impl PubSubDataSource for AddressSpace{
+    fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, ()>{
+        self.get_variable_value(nid)
+    }
+}
+
+
 
 #[allow(dead_code)]
 pub struct PubSubConnectionBuilder{
@@ -39,7 +84,7 @@ pub struct PubSubConnection{
     datasets: Vec<PublishedDataSet>,
     writer: Vec<WriterGroupe>,
     network_message_no: u16,
-    address_space: Arc<RwLock<AddressSpace>>
+    data_source: Arc<RwLock<dyn PubSubDataSource>>
 }
 
 pub struct PubSubReceiver{
@@ -63,7 +108,7 @@ impl PubSubReceiver{
 
 impl PubSubConnection {
     /// accepts
-    pub fn new(url: String, publisher_id: Variant, address_space: Option<Arc<RwLock<AddressSpace>>>) -> Result<Self, StatusCode> {
+    pub fn new(url: String, publisher_id: Variant, data_source: Arc<RwLock<dyn PubSubDataSource>>) -> Result<Self, StatusCode> {
         //@TODO check for correct scheme!! (opc.udp://xxxx)
         //      currently every scheme is changed to udpuadp
         //let url_udp = match (&url){
@@ -87,10 +132,6 @@ impl PubSubConnection {
                 return Err(StatusCode::BadCommunicationError)
             }
         };
-        let addr = match address_space {
-            Some(x) => x,
-            None => Arc::new(RwLock::new(AddressSpace::new()))
-        };
         return Ok(PubSubConnection {
             profile,
             url,
@@ -99,7 +140,7 @@ impl PubSubConnection {
             datasets: Vec::new(),
             writer: Vec::new(),
             network_message_no: 0,
-            address_space: addr
+            data_source
         });
     }
     /// Create a new UadpReceiver 
@@ -134,7 +175,7 @@ impl PubSubConnection {
     pub fn poll(&mut self, _timedelta: u64){
         let mut msgs = Vec::with_capacity(self.writer.len());
         let mut net_offset = 0;
-        let inf = PubSubDataSetInfo{address_space: &self.address_space, datasets: &self.datasets};
+        let inf = PubSubDataSetInfo{data_source: &self.data_source, datasets: &self.datasets};
         for w in &mut self.writer{
             if w.tick(){
                 if let Some(msg) = w.generate_message(self.network_message_no + net_offset, &self.publisher_id, &inf){
@@ -162,15 +203,16 @@ impl PubSubConnection {
 }
 
 struct PubSubDataSetInfo<'a>{
-    address_space: &'a Arc<RwLock<AddressSpace>>,
+    data_source: &'a Arc<RwLock<dyn PubSubDataSource>>,
     datasets: &'a Vec<PublishedDataSet>   
 }
 
 impl<'a> DataSetInfo for PubSubDataSetInfo<'a>{
     fn collect_values(&self, name: &UAString) -> Vec::<(Promoted, DataValue)>{
         if let Some(ds) = self.datasets.iter().find(|x| &x.name == name){
-            let addr = self.address_space.write().unwrap();
-            ds.get_data(&addr)
+            let guard = self.data_source.write().unwrap();
+            let d_source = &(*guard);
+            ds.get_data(d_source)
         } else {
             warn!("DataSet {} not found", name);
             Vec::new()
@@ -212,8 +254,8 @@ impl PubSubConnectionBuilder{
         self
     }
     
-    pub fn build(&self, addr_space: Option<Arc<RwLock<AddressSpace>>>) -> Result<PubSubConnection, StatusCode>{
-        Ok(PubSubConnection::new(self.url.to_string(), self.publisher_id.clone(), addr_space)?)
+    pub fn build(&self, data_source: Arc<RwLock<dyn PubSubDataSource>>) -> Result<PubSubConnection, StatusCode>{
+        Ok(PubSubConnection::new(self.url.to_string(), self.publisher_id.clone(), data_source)?)
     }
 }
 

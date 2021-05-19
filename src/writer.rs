@@ -1,3 +1,6 @@
+// OPC UA Pubsub implementation for Rust
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (C) 2020 Alexander Schrode
 use opcua_types::string::UAString;
 use opcua_types::Duration;
 use opcua_types::Guid;
