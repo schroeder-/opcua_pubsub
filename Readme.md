@@ -14,6 +14,7 @@ Currently only standalone subscriber and publisher via UADP are supported, see e
 * [x] Standalone Publisher
 * [x] integrated Subscription
 * [ ] integrated Publisher
+* [ ] PubSub EventLoop
 * [ ] Tokio support
 ## UADP (Pubsub via Multicast UDP)
 
@@ -29,24 +30,25 @@ Currently only standalone subscriber and publisher via UADP are supported, see e
 
 * [x] PubSubConnection
 * [x] PublishedDataSet
-* [x] WriterGroupe
+* [x] WriterGroup
 * [x] DataSetWriter
 * [ ] Information Model
 
 ## Integration Subscriber with opcua server
 
-* [ ] PubSubConnection
-* [ ] SubscripedDataSet
-* [ ] ReaderGroupe
-* [ ] DataSetReader
+* [x] PubSubConnection
+* [x] SubscripedDataSet
+* [x] ReaderGroup
+* [x] DataSetReader
+* [ ] Link DataSet with DataSource
 * [ ] Information Model
 
-## WriterGroupe
+## WriterGroup
 * [ ] MessageOrdering
 * [ ] Raw Structures
 * [ ] KeepAlive
 * [ ] DeltaFrames
-
+* [ ] Max message length
 # License
 
 The code is licenced under [MPL-2.0](https://opensource.org/licenses/MPL-2.0). Like all open source code, you use this code at your own risk.

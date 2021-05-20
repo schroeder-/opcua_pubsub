@@ -1,13 +1,14 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
-// Copyright (C) 2020 Alexander Schrode
+// Copyright (C) 2021 Alexander Schrode
 
 use opcua_types::string::UAString;
 use opcua_types::status_code::StatusCode;
 use opcua_types::{Variant, DecodingLimits, DataValue, ConfigurationVersionDataType, NodeId};
 use crate::network::{UadpNetworkConnection, UadpNetworkReceiver};
 use crate::message::UadpNetworkMessage;
-use crate::writer::WriterGroupe;
+use crate::writer::WriterGroup;
+use crate::reader::ReaderGroup;
 use crate::pubdataset::{PublishedDataSet, DataSetInfo, Promoted};
 use log::{error, warn};
 use std::io::Cursor;
@@ -84,7 +85,8 @@ pub struct PubSubConnection{
     publisher_id: Variant,
     connection: UadpNetworkConnection,
     datasets: Vec<PublishedDataSet>,
-    writer: Vec<WriterGroupe>,
+    writer: Vec<WriterGroup>,
+    reader: Vec<ReaderGroup>,
     network_message_no: u16,
     data_source: Arc<RwLock<PubSubDataSourceT>>
 }
@@ -103,6 +105,20 @@ impl PubSubReceiver{
     
         let msg = UadpNetworkMessage::decode(&mut stream, &decoding_options)?;
         Ok(msg)
+    }
+
+    pub fn run(&self, pubsub: Arc<RwLock<PubSubConnection>>){
+        loop{
+            match self.receive_msg(){
+                Ok(msg) => {
+                    let ps = pubsub.write().unwrap();
+                    ps.handle_message(msg);
+                }
+                Err(err) => {
+                    warn!("UadpReciver: error reading message {}!", err);
+                }
+            }
+        }
     }
 }
 
@@ -141,6 +157,7 @@ impl PubSubConnection {
             connection,
             datasets: Vec::new(),
             writer: Vec::new(),
+            reader: Vec::new(),
             network_message_no: 0,
             data_source
         });
@@ -170,8 +187,18 @@ impl PubSubConnection {
         self.datasets.push(dataset);
     }
 
-    pub fn add_writer_groupe(&mut self, group: WriterGroupe){
+    pub fn add_writer_group(&mut self, group: WriterGroup){
         self.writer.push(group);
+    }
+    
+    pub fn add_reader_group(&mut self, group: ReaderGroup){
+        self.reader.push(group);
+    }
+
+    pub fn handle_message(&self, msg: UadpNetworkMessage){
+        for rg in self.reader.iter(){
+            rg.handle_message(&msg);
+        }
     }
 
     pub fn poll(&mut self, _timedelta: u64){
@@ -196,7 +223,7 @@ impl PubSubConnection {
                     }
                 },
                 Err(err) => {
-                    error!("Uadp error decoding message WriterGroupe {} - {}", id, err);
+                    error!("Uadp error decoding message WriterGroup {} - {}", id, err);
                 }
             }
         }

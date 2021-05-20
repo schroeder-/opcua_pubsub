@@ -1,6 +1,6 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
-// Copyright (C) 2020 Alexander Schrode
+// Copyright (C) 2021 Alexander Schrode
 use log::{trace, warn};
 use opcua_types::status_code::StatusCode;
 use opcua_types::EncodingResult;
@@ -42,7 +42,7 @@ impl MessageHeaderFlags {
 }
 
 
-/// Uadp groupe header flags See OPC Unified Architecture, Part 14 7.2.2.2.2
+/// Uadp group header flags See OPC Unified Architecture, Part 14 7.2.2.2.2
 struct MessageGroupHeaderFlags;
 impl MessageGroupHeaderFlags {
     const WRITER_GROUP_ID_EN: u8 = 0b0001;
@@ -89,9 +89,9 @@ pub struct UadpHeader {
 type VersionTime = u32;
 type UadpDataSetPayload = Vec<u16>;
 
-/// Header of groupe part of an uadp message
+/// Header of group part of an uadp message
 #[derive(PartialEq, Debug)]
-pub struct UadpGroupeHeader {
+pub struct UadpGroupHeader {
     pub writer_group_id: Option<u16>,
     pub group_version: Option<VersionTime>,
     pub network_message_no: Option<u16>,
@@ -250,7 +250,7 @@ impl UadpHeader {
     }
 }
 
-impl UadpGroupeHeader {
+impl UadpGroupHeader {
     fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
         let mut flags: u8 = 0;
         if self.writer_group_id.is_some() {
@@ -285,7 +285,7 @@ impl UadpGroupeHeader {
         Ok(sz)
     }
 
-    fn decode<S: Read>(c: &mut S, _limits: &DecodingLimits) -> EncodingResult<UadpGroupeHeader> {
+    fn decode<S: Read>(c: &mut S, _limits: &DecodingLimits) -> EncodingResult<UadpGroupHeader> {
         let flags = read_u8(c)?;
         let writer_group_id = if flags & MessageGroupHeaderFlags::WRITER_GROUP_ID_EN != 0 {
             Some(read_u16(c)?)
@@ -308,7 +308,7 @@ impl UadpGroupeHeader {
         } else {
             None
         };
-        Ok(UadpGroupeHeader {
+        Ok(UadpGroupHeader {
             writer_group_id,
             group_version,
             network_message_no,
@@ -612,7 +612,7 @@ impl UadpDataSetMessage {
 #[derive(PartialEq, Debug)]
 pub struct UadpNetworkMessage {
     pub header: UadpHeader,
-    pub group_header: Option<UadpGroupeHeader>,
+    pub group_header: Option<UadpGroupHeader>,
     pub dataset_payload: Vec<u16>,
     pub timestamp: Option<opcua_types::DateTime>,
     pub picoseconds: Option<u16>,
@@ -668,7 +668,7 @@ impl UadpNetworkMessage {
     pub fn decode<S: Read>(c: &mut S, decoding_options: &DecodingLimits) -> EncodingResult<Self> {
         let (header, flags) = UadpHeader::decode(c, decoding_options)?;
         let group_header = if flags.contains(MessageHeaderFlags::GROUP_HEADER_EN) {
-            Some(UadpGroupeHeader::decode(c, decoding_options)?)
+            Some(UadpGroupHeader::decode(c, decoding_options)?)
         } else {
             None
         };

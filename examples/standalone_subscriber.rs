@@ -1,6 +1,6 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
-// Copyright (C) 2020 Alexander Schrode
+// Copyright (C) 2021 Alexander Schrode
 use opcua_pubsub::prelude::*;
 use opcua_pubsub::message::{UadpNetworkMessage, UadpMessageType};
 
@@ -14,7 +14,7 @@ fn got_message(msg: UadpNetworkMessage){
     }
     if let Some(gp) = &msg.group_header {
         println!(
-            "Groupe Header: WriterGroupe={}",
+            "Group Header: WriterGroup={}",
             gp.writer_group_id.unwrap_or(0)
         );
     }

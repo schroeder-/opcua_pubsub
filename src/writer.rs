@@ -1,6 +1,6 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
-// Copyright (C) 2020 Alexander Schrode
+// Copyright (C) 2021 Alexander Schrode
 use opcua_types::string::UAString;
 use opcua_types::Duration;
 use opcua_types::Guid;
@@ -8,7 +8,7 @@ use opcua_types::status_code::StatusCode;
 use opcua_types::{Variant, DataValue, ConfigurationVersionDataType};
 use opcua_types::DateTime;
 use crate::{UadpNetworkMessageContentFlags, DataSetFieldContentFlags, UadpDataSetMessageContentFlags};
-use crate::message::{UadpNetworkMessage, UadpGroupeHeader, UadpMessageType, UadpDataSetMessage};
+use crate::message::{UadpNetworkMessage, UadpGroupHeader, UadpMessageType, UadpDataSetMessage};
 use crate::pubdataset::{PublishedDataSet, generate_version_time, Promoted, DataSetInfo};
 use chrono::Utc;
 
@@ -30,10 +30,9 @@ impl DataSetWriterBuilder{
             dataset_writer_id: 12345,
             field_content_mask: DataSetFieldContentFlags::NONE,
             key_frame_count: 10,
-            message_content_mask:  UadpDataSetMessageContentFlags::NONE,
-                //UadpDataSetMessageContentFlags::MAJORVERSION |
-                //UadpDataSetMessageContentFlags::MINORVERSION |
-                //UadpDataSetMessageContentFlags::TIMESTAMP,
+            message_content_mask: UadpDataSetMessageContentFlags::MAJORVERSION |
+                    UadpDataSetMessageContentFlags::MINORVERSION |
+                    UadpDataSetMessageContentFlags::TIMESTAMP,
             dataset_name: pds.name.clone()
         }
     }
@@ -237,7 +236,7 @@ impl DataSetWriter{
 }
 
 #[allow(dead_code)]
-pub struct WriterGroupe{
+pub struct WriterGroup{
     pub name: UAString,
     enabled: bool,
     pub writer_group_id: u16,
@@ -246,11 +245,11 @@ pub struct WriterGroupe{
     message_settings: UadpNetworkMessageContentFlags,
     sequence_no: u16,
     writer: Vec::<DataSetWriter>,
-    groupe_version: u32,
+    group_version: u32,
     last_action: DateTime
 }
 
-impl WriterGroupe{
+impl WriterGroup{
     // Check if action is required
     pub fn tick(& mut self) -> bool{
         //@TODO check keepalive
@@ -269,7 +268,7 @@ impl WriterGroupe{
         }
         if self.message_settings.contains(UadpNetworkMessageContentFlags::GROUPHEADER){
             let ver = if self.message_settings.contains(UadpNetworkMessageContentFlags::GROUPVERSION){
-                Some(self.groupe_version)
+                Some(self.group_version)
             } else {
                 None
             };
@@ -288,7 +287,7 @@ impl WriterGroupe{
             } else {
                 None
             };
-            message.group_header = Some(UadpGroupeHeader{
+            message.group_header = Some(UadpGroupHeader{
                 writer_group_id: wg_id,
                 group_version: ver, 
                 network_message_no: net_no, 
@@ -336,26 +335,26 @@ impl WriterGroupe{
     }
 
     pub fn add_dataset_writer(&mut self, dsw: DataSetWriter){
-        self.groupe_version = generate_version_time();
+        self.group_version = generate_version_time();
         self.writer.push(dsw);
     }
 }
 
-pub struct WriterGroupeBuilder{
+pub struct WriterGroupBuilder{
     name: UAString,
-    groupe_id: u16,
+    group_id: u16,
     publish_interval: Duration,
     keep_alive_time: f64,
     message_settings: UadpNetworkMessageContentFlags,
 }
 
 
-impl WriterGroupeBuilder{
+impl WriterGroupBuilder{
 
     pub fn new() -> Self{
-        WriterGroupeBuilder{
-            name: "WriterGroupe".into(),
-            groupe_id: 12345,
+        WriterGroupBuilder{
+            name: "WriterGroup".into(),
+            group_id: 12345,
             publish_interval: 1000.0,
             keep_alive_time: 10000.0,
             message_settings: 
@@ -381,8 +380,8 @@ impl WriterGroupeBuilder{
         self       
     }   
 
-    pub fn set_groupe_id<'a>(&'a mut self, id: u16) -> &'a mut Self{
-        self.groupe_id = id;
+    pub fn set_group_id<'a>(&'a mut self, id: u16) -> &'a mut Self{
+        self.group_id = id;
         self       
     }
     
@@ -391,15 +390,15 @@ impl WriterGroupeBuilder{
         self
     }
 
-    pub fn build(&self) -> WriterGroupe{
-        WriterGroupe{name: self.name.clone(), enabled: false,
-            writer_group_id: self.groupe_id,
+    pub fn build(&self) -> WriterGroup{
+        WriterGroup{name: self.name.clone(), enabled: false,
+            writer_group_id: self.group_id,
             publishing_interval: self.publish_interval,
             keep_alive_time: self.keep_alive_time,
             message_settings: self.message_settings,
             writer: Vec::new(),
             sequence_no: 0,
-            groupe_version: generate_version_time(),
+            group_version: generate_version_time(),
             last_action: DateTime::null()
         }
     }

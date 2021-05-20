@@ -1,6 +1,6 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
-// Copyright (C) 2020 Alexander Schrode
+// Copyright (C) 2021 Alexander Schrode
 
 use opcua_pubsub::prelude::*;
 use std::{thread, time};
@@ -41,19 +41,19 @@ fn generate_pubsub(ns: u16, addr: &Arc<RwLock<SimpleAddressSpace>>) -> Result<Ar
         .set_target_variable(NodeId::new(ns, 3))
         .set_alias("BoolToggle".into())
         .insert(&mut dataset);
-    // Configure a Writer Groupe which is responsable for sending the messages  
+    // Configure a Writer Group which is responsable for sending the messages  
     let msg_settings: UadpNetworkMessageContentFlags = 
         UadpNetworkMessageContentFlags::PUBLISHERID |
         UadpNetworkMessageContentFlags::GROUPHEADER |
         UadpNetworkMessageContentFlags::WRITERGROUPID |
         UadpNetworkMessageContentFlags::PAYLOADHEADER;
-    let mut wg = WriterGroupeBuilder::new()
-        .set_name("WriterGroupe1".into())
-        .set_groupe_id(100)
+    let mut wg = WriterGroupBuilder::new()
+        .set_name("WriterGroup1".into())
+        .set_group_id(100)
         .set_message_setting(msg_settings)
         .set_publish_interval(1000.0)
         .build();
-    // Glue the writer groupe and published dataset together with a 
+    // Glue the writer group and published dataset together with a 
     // dataset writer
     let dsw = DataSetWriterBuilder::new(&dataset)
         .set_key_frame_count(1)
@@ -63,7 +63,7 @@ fn generate_pubsub(ns: u16, addr: &Arc<RwLock<SimpleAddressSpace>>) -> Result<Ar
     wg.add_dataset_writer(dsw);
     { 
         let mut ps = pubsub.write().unwrap();
-        ps.add_writer_groupe(wg);
+        ps.add_writer_group(wg);
         ps.add_dataset(dataset);
     }
     Ok(pubsub)
