@@ -1,27 +1,27 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2020 Alexander Schrode
+use log::error;
 use opcua_types::status_code::StatusCode;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::io;
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
-use log::error;
 
-/// Uadp message configuration which is used to receive/send udp messages 
+/// Uadp message configuration which is used to receive/send udp messages
 pub struct UadpNetworkConnection {
     send_socket: Socket,
     addr2: socket2::SockAddr,
     addr: SocketAddr,
 }
 
-pub struct UadpNetworkReceiver{
+pub struct UadpNetworkReceiver {
     recv_socket: Socket,
 }
 
-impl UadpNetworkReceiver{
-    pub fn receive_msg(&self) -> Result<Vec::<u8>, StatusCode>{
+impl UadpNetworkReceiver {
+    pub fn receive_msg(&self) -> Result<Vec<u8>, StatusCode> {
         let mut buf = [MaybeUninit::new(0u8); 16000];
         match self.recv_socket.recv_from(&mut buf) {
             Ok((len, _remote_addr)) => {
@@ -34,7 +34,6 @@ impl UadpNetworkReceiver{
             }
         }
     }
-    
 }
 
 impl UadpNetworkConnection {
@@ -48,21 +47,23 @@ impl UadpNetworkConnection {
             Ok(a) => a,
         };
         let send_socket = new_sender(&addr)?;
-        Ok(UadpNetworkConnection { 
-            send_socket, addr: addr, addr2: socket2::SockAddr::from(addr)})
+        Ok(UadpNetworkConnection {
+            send_socket,
+            addr: addr,
+            addr2: socket2::SockAddr::from(addr),
+        })
     }
 
     // creates a receiver for udp messages
-    pub fn create_receiver(&self) -> std::io::Result<UadpNetworkReceiver>{
-        let recv_socket =  join_multicast(self.addr)?;
-        Ok(UadpNetworkReceiver{recv_socket})
+    pub fn create_receiver(&self) -> std::io::Result<UadpNetworkReceiver> {
+        let recv_socket = join_multicast(self.addr)?;
+        Ok(UadpNetworkReceiver { recv_socket })
     }
     /// sends a multicast message
-    pub fn send(&self, b: &[u8]) -> io::Result<usize>{
+    pub fn send(&self, b: &[u8]) -> io::Result<usize> {
         self.send_socket.send_to(b, &self.addr2)
     }
 }
-
 
 /// On Windows, unlike all Unix variants, it is improper to bind to the multicast address
 ///
@@ -128,7 +129,7 @@ pub fn new_sender(addr: &SocketAddr) -> io::Result<Socket> {
     if addr.is_ipv4() {
         socket.set_multicast_if_v4(&Ipv4Addr::new(0, 0, 0, 0))?;
     } else {
-        //@TODO find correct v6 
+        //@TODO find correct v6
         socket.set_multicast_if_v6(0)?;
     }
     Ok(socket)

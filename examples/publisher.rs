@@ -4,10 +4,10 @@
 
 use opcua_pubsub::prelude::*;
 use opcua_server::prelude::*;
-use std::sync::{Arc, RwLock};
 use std::env;
+use std::sync::{Arc, RwLock};
 
-fn create_server() -> Server{
+fn create_server() -> Server {
     let port = 4855;
     ServerBuilder::new_anonymous("UadpPublisher")
         .application_name("UadpPublisher")
@@ -15,14 +15,12 @@ fn create_server() -> Server{
         .product_uri("urn:uadppublisher Test")
         .create_sample_keypair(true)
         .host_and_port("127.0.0.1", port)
-        .discovery_urls(vec![
-            "/".into()
-        ])
-        .server().unwrap()
+        .discovery_urls(vec!["/".into()])
+        .server()
+        .unwrap()
 }
 
-
-fn generate_namespace(server: &Server) -> u16{
+fn generate_namespace(server: &Server) -> u16 {
     let address_space = server.address_space();
     let mut address_space = address_space.write().unwrap();
     let ns = address_space
@@ -43,21 +41,20 @@ fn generate_namespace(server: &Server) -> u16{
         v.set_writable(true);
         v.set_user_access_level(UserAccessLevel::CURRENT_WRITE | UserAccessLevel::CURRENT_READ);
     });
-    let _ = address_space.add_variables(
-        vars,
-        &folder_id,
-    );
+    let _ = address_space.add_variables(vars, &folder_id);
     return ns;
 }
 
 // Generates the Publisher
-fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnection>>, StatusCode>{
+fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnection>>, StatusCode> {
     let url = "224.0.0.22:4840"; // "opc.udp://224.0.0.22:4840/";
-    // Create a pubsub connection
-    let pubsub = Arc::new(RwLock::new(PubSubConnectionBuilder::new()
-        .set_url(url.into())
-        .set_publisher_id(Variant::UInt16(2234))
-        .build(server.address_space())?));
+                                 // Create a pubsub connection
+    let pubsub = Arc::new(RwLock::new(
+        PubSubConnectionBuilder::new()
+            .set_url(url.into())
+            .set_publisher_id(Variant::UInt16(2234))
+            .build(server.address_space())?,
+    ));
     // Create a Published Dataset with the fields to publish
     let dataset_name = "Dataset 1".into();
     let mut dataset = PublishedDataSet::new(dataset_name);
@@ -78,19 +75,18 @@ fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnecti
         .set_target_variable(NodeId::new(ns, 3))
         .set_alias("BoolToggle".into())
         .insert(&mut dataset);
-    // Configure a Writer Group which is responsable for sending the messages  
-    let msg_settings: UadpNetworkMessageContentFlags = 
-        UadpNetworkMessageContentFlags::PUBLISHERID |
-        UadpNetworkMessageContentFlags::GROUPHEADER |
-        UadpNetworkMessageContentFlags::WRITERGROUPID |
-        UadpNetworkMessageContentFlags::PAYLOADHEADER;
+    // Configure a Writer Group which is responsable for sending the messages
+    let msg_settings: UadpNetworkMessageContentFlags = UadpNetworkMessageContentFlags::PUBLISHERID
+        | UadpNetworkMessageContentFlags::GROUPHEADER
+        | UadpNetworkMessageContentFlags::WRITERGROUPID
+        | UadpNetworkMessageContentFlags::PAYLOADHEADER;
     let mut wg = WriterGroupBuilder::new()
         .set_name("WriterGroup1".into())
         .set_group_id(100)
         .set_message_setting(msg_settings)
         .set_publish_interval(1000.0)
         .build();
-    // Glue the writer group and published dataset together with a 
+    // Glue the writer group and published dataset together with a
     // dataset writer
     let dsw = DataSetWriterBuilder::new(&dataset)
         .set_key_frame_count(1)
@@ -98,7 +94,7 @@ fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnecti
         .set_name("DataSetWriter1".into())
         .build();
     wg.add_dataset_writer(dsw);
-    { 
+    {
         let mut ps = pubsub.write().unwrap();
         ps.add_writer_group(wg);
         ps.add_dataset(dataset);
@@ -122,4 +118,3 @@ fn main() -> Result<(), StatusCode> {
     server.run();
     Ok(())
 }
-

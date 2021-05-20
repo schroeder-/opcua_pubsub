@@ -1,29 +1,35 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-mod network;
-pub mod message;
 pub mod connection;
+pub mod message;
+mod network;
 pub mod pubdataset;
-pub mod writer;
 pub mod reader;
+pub mod writer;
 pub mod prelude {
-    pub use opcua_types::status_code::StatusCode;
-    pub use opcua_types::{NodeId, DataTypeId, DataValue, Variant, DateTime, UadpNetworkMessageContentMask, DataSetFieldContentMask, UadpDataSetMessageContentMask};
-    pub use opcua_types::string::UAString;
     pub use crate::connection::{PubSubConnection, PubSubConnectionBuilder};
     pub use crate::connection::{PubSubDataSource, SimpleAddressSpace};
-    pub use crate::pubdataset::{PublishedDataSet, DataSetFieldBuilder, PubSubFieldMetaDataBuilder};
+    pub use crate::pubdataset::{
+        DataSetFieldBuilder, PubSubFieldMetaDataBuilder, PublishedDataSet,
+    };
+    pub use crate::reader::{DataSetReaderBuilder, ReaderGroup};
     pub use crate::writer::{DataSetWriterBuilder, WriterGroupBuilder};
-    pub use crate::reader::{ReaderGroup, DataSetReaderBuilder};
-    pub use crate::{UadpNetworkMessageContentFlags, DataSetFieldContentFlags, UadpDataSetMessageContentFlags};
+    pub use crate::{
+        DataSetFieldContentFlags, UadpDataSetMessageContentFlags, UadpNetworkMessageContentFlags,
+    };
+    pub use opcua_types::status_code::StatusCode;
+    pub use opcua_types::string::UAString;
+    pub use opcua_types::{
+        DataSetFieldContentMask, DataTypeId, DataValue, DateTime, NodeId,
+        UadpDataSetMessageContentMask, UadpNetworkMessageContentMask, Variant,
+    };
 }
-
 
 use bitflags;
 use opcua_types::DataSetFieldContentMask;
-use opcua_types::UadpNetworkMessageContentMask;
 use opcua_types::UadpDataSetMessageContentMask;
+use opcua_types::UadpNetworkMessageContentMask;
 #[allow(non_upper_case_globals)]
 
 bitflags::bitflags! {
@@ -66,4 +72,3 @@ bitflags::bitflags! {
         const PROMOTEDFIELDS = UadpNetworkMessageContentMask::PromotedFields as u32;
     }
 }
-

@@ -15,9 +15,10 @@ struct MessageHeaderFlags(u32);
 #[allow(dead_code)]
 impl MessageHeaderFlags {
     // Flags
-    const PUBLISHER_ID_EN: u32 = 0b00010000; /// If the PublisherId is enabled, the type of PublisherId is indicated in the ExtendedFlags1 field.
-    const GROUP_HEADER_EN: u32 = 0b00100000; 
-    const PAYLOAD_HEADER_EN: u32 = 0b01000000; 
+    const PUBLISHER_ID_EN: u32 = 0b00010000;
+    /// If the PublisherId is enabled, the type of PublisherId is indicated in the ExtendedFlags1 field.
+    const GROUP_HEADER_EN: u32 = 0b00100000;
+    const PAYLOAD_HEADER_EN: u32 = 0b01000000;
     const EXTENDED_FLAGS_1: u32 = 0b10000000;
     // FlagsExtend1
     // When No PublisherId ist set then Id is Byte!
@@ -41,7 +42,6 @@ impl MessageHeaderFlags {
     }
 }
 
-
 /// Uadp group header flags See OPC Unified Architecture, Part 14 7.2.2.2.2
 struct MessageGroupHeaderFlags;
 impl MessageGroupHeaderFlags {
@@ -50,7 +50,6 @@ impl MessageGroupHeaderFlags {
     const NETWORK_MESSAGE_NUMBER_EN: u8 = 0b0100;
     const SEQUENCE_NUMBER_EN: u8 = 0b1000;
 }
-
 
 /// Uadp dataset header flags See OPC Unified Architecture, Part 14 7.2.2.3.2
 struct MessageDataSetFlags(u16);
@@ -83,7 +82,6 @@ pub struct UadpHeader {
     pub dataset_class_id: Option<Guid>,
 }
 
-
 /// https://reference.opcfoundation.org/v104/Core/docs/Part4/7.38/
 /// UInt32 as seconds since the year 2000. It is used for representing Version changes
 type VersionTime = u32;
@@ -108,27 +106,26 @@ pub struct UadpDataSetMessageHeader {
     pub cfg_minor_version: Option<VersionTime>,
 }
 
-/// different Messages types 
+/// different Messages types
 #[derive(PartialEq, Debug)]
 pub enum UadpMessageType {
     /// a vector of variants
-    KeyFrameVariant(Vec<Variant>), 
-     /// a vector of datavalues
+    KeyFrameVariant(Vec<Variant>),
+    /// a vector of datavalues
     KeyFrameDataValue(Vec<DataValue>),
     /// raw data, encoding needs a description of the structured data
-    KeyFrameRaw(Vec<Vec<u8>>), 
+    KeyFrameRaw(Vec<Vec<u8>>),
     /// only changed variants are reported, u16 represents the position in dataset
-    KeyDeltaFrameVariant(Vec<(u16, Variant)>), 
+    KeyDeltaFrameVariant(Vec<(u16, Variant)>),
     /// only changed datavalues are reported
-    KeyDeltaFrameValue(Vec<(u16, DataValue)>), 
+    KeyDeltaFrameValue(Vec<(u16, DataValue)>),
     /// only raw changed elements of dataset
-    KeyDeltaFrameRaw(Vec<(u16, Vec<u8>)>), 
-    /// an event which contains the data as variants 
-    Event(Vec<Variant>), 
+    KeyDeltaFrameRaw(Vec<(u16, Vec<u8>)>),
+    /// an event which contains the data as variants
+    Event(Vec<Variant>),
     /// keep alive message of the publisher
-    KeepAlive
+    KeepAlive,
 }
-
 
 #[derive(PartialEq, Debug)]
 pub struct UadpDataSetMessage {
@@ -347,10 +344,10 @@ impl UadpDataSetMessageHeader {
         if self.pico_seconds.is_some() {
             flags += MessageDataSetFlags::PICOSECONDS;
         }
-        if self.cfg_minor_version.is_some(){
+        if self.cfg_minor_version.is_some() {
             flags += MessageDataSetFlags::CFG_MINOR_VERSION;
         }
-        if self.cfg_major_version.is_some(){
+        if self.cfg_major_version.is_some() {
             flags += MessageDataSetFlags::CFG_MAJOR_VERSION;
         }
         if flags > 0xFF {
@@ -442,31 +439,30 @@ impl UadpDataSetMessageHeader {
     }
 }
 
-
-impl UadpMessageType{
+impl UadpMessageType {
     fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
-        match self{
+        match self {
             UadpMessageType::KeyFrameVariant(data) => {
                 let mut sz = write_u16(stream, data.len() as u16)?;
                 for v in data.iter() {
                     sz += v.encode(stream)?;
                 }
                 Ok(sz)
-            },
+            }
             UadpMessageType::KeyFrameDataValue(data) => {
                 let mut sz = write_u16(stream, data.len() as u16)?;
                 for v in data.iter() {
                     sz += v.encode(stream)?;
                 }
                 Ok(sz)
-            },
+            }
             UadpMessageType::KeyFrameRaw(data) => {
                 let mut sz = write_u16(stream, data.len() as u16)?;
                 for v in data.iter() {
                     sz += process_encode_io_result(stream.write(v))?;
                 }
                 Ok(sz)
-            },
+            }
             UadpMessageType::KeyDeltaFrameRaw(data) => {
                 let mut sz = write_u16(stream, data.len() as u16)?;
                 for (id, v) in data.iter() {
@@ -474,7 +470,7 @@ impl UadpMessageType{
                     sz += process_encode_io_result(stream.write(v))?;
                 }
                 Ok(sz)
-            },
+            }
             UadpMessageType::KeyDeltaFrameValue(data) => {
                 let mut sz = write_u16(stream, data.len() as u16)?;
                 for (id, v) in data.iter() {
@@ -482,7 +478,7 @@ impl UadpMessageType{
                     sz += v.encode(stream)?;
                 }
                 Ok(sz)
-            },
+            }
             UadpMessageType::KeyDeltaFrameVariant(data) => {
                 let mut sz = write_u16(stream, data.len() as u16)?;
                 for (id, v) in data.iter() {
@@ -490,7 +486,7 @@ impl UadpMessageType{
                     sz += v.encode(stream)?;
                 }
                 Ok(sz)
-            },
+            }
             UadpMessageType::KeepAlive => Ok(0),
             UadpMessageType::Event(data) => {
                 let mut sz = write_u16(stream, data.len() as u16)?;
@@ -502,8 +498,12 @@ impl UadpMessageType{
         }
     }
 
-    fn decode<S: Read>(c: &mut S, decoding_options: &DecodingLimits, flags: MessageDataSetFlags, pay_head: &UadpDataSetPayload)
-        -> EncodingResult<Self> {
+    fn decode<S: Read>(
+        c: &mut S,
+        decoding_options: &DecodingLimits,
+        flags: MessageDataSetFlags,
+        pay_head: &UadpDataSetPayload,
+    ) -> EncodingResult<Self> {
         if flags.contains(MessageDataSetFlags::DELTA_FRAME) {
             if flags.contains(MessageDataSetFlags::DATA_VALUE) {
                 let count = read_u16(c)? as usize;
@@ -579,17 +579,26 @@ impl UadpMessageType{
                 }
                 Ok(UadpMessageType::KeyFrameVariant(data))
             }
-        }    
+        }
     }
 }
 
 impl UadpDataSetMessage {
     /// creates a new dataset message that is valid and doesn't contain an value
-    pub fn new(message: UadpMessageType) -> Self{
-        let header = UadpDataSetMessageHeader{ 
-                valid: true, sequence_no: None, time_stamp: None,
-                pico_seconds: None, status: None, cfg_major_version: None, cfg_minor_version: None };
-        UadpDataSetMessage{ header, data: message }
+    pub fn new(message: UadpMessageType) -> Self {
+        let header = UadpDataSetMessageHeader {
+            valid: true,
+            sequence_no: None,
+            time_stamp: None,
+            pico_seconds: None,
+            status: None,
+            cfg_major_version: None,
+            cfg_minor_version: None,
+        };
+        UadpDataSetMessage {
+            header,
+            data: message,
+        }
     }
 
     fn encode<S: Write>(&self, stream: &mut S) -> Result<usize, StatusCode> {
@@ -622,15 +631,26 @@ pub struct UadpNetworkMessage {
 
 impl UadpNetworkMessage {
     /// creates an empty uadp network message
-    pub fn new() -> Self{
+    pub fn new() -> Self {
         let dataset = Vec::new();
         let promoted_fields = Vec::new();
         let picoseconds = None;
         let timestamp = None;
         let dataset_payload = Vec::new();
         let group_header = None;
-        let header = UadpHeader{ dataset_class_id: None, publisher_id: None};
-        UadpNetworkMessage{header, group_header, dataset_payload, timestamp, picoseconds, promoted_fields, dataset}
+        let header = UadpHeader {
+            dataset_class_id: None,
+            publisher_id: None,
+        };
+        UadpNetworkMessage {
+            header,
+            group_header,
+            dataset_payload,
+            timestamp,
+            picoseconds,
+            promoted_fields,
+            dataset,
+        }
     }
 
     pub fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
@@ -735,20 +755,19 @@ impl UadpNetworkMessage {
     }
 }
 
-
-
-
-
 #[cfg(test)]
-mod tests{
+mod tests {
     use super::*;
     use std::io::Cursor;
     #[test]
-    fn encode_decode_test() -> Result<(), StatusCode>{
+    fn encode_decode_test() -> Result<(), StatusCode> {
         let mut msg = UadpNetworkMessage::new();
         msg.timestamp = Some(opcua_types::DateTime::now());
-        let var = vec!{ Variant::from("Test123"), Variant::from(64)};
-        msg.dataset.push(UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(var)));
+        let var = vec![Variant::from("Test123"), Variant::from(64)];
+        msg.dataset
+            .push(UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(
+                var,
+            )));
         let mut data = Vec::new();
 
         msg.encode(&mut data)?;
@@ -759,22 +778,22 @@ mod tests{
         Ok(())
     }
     #[test]
-    fn test_parts() -> Result<(), StatusCode>{
+    fn test_parts() -> Result<(), StatusCode> {
         let mut msg = UadpNetworkMessage::new();
         msg.timestamp = Some(opcua_types::DateTime::now());
-        let var = vec!{ Variant::from("Test123"), Variant::from(64)};
+        let var = vec![Variant::from("Test123"), Variant::from(64)];
         let mut ds = UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(var));
         ds.header.cfg_major_version = Some(1234);
         ds.header.cfg_minor_version = Some(12345);
         ds.header.time_stamp = Some(DateTime::now());
         msg.dataset.push(ds);
-        
+
         let mut data = Vec::new();
         msg.encode(&mut data)?;
         let mut c = Cursor::new(data);
         let dec = UadpNetworkMessage::decode(&mut c, &DecodingLimits::default())?;
         assert_eq!(dec.timestamp, msg.timestamp);
         assert_eq!(dec.dataset, msg.dataset);
-        Ok(()) 
+        Ok(())
     }
 }

@@ -1,15 +1,15 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
+use opcua_pubsub::message::{UadpMessageType, UadpNetworkMessage};
 use opcua_pubsub::prelude::*;
-use opcua_pubsub::message::{UadpNetworkMessage, UadpMessageType};
 
 /// In this example messages a subscribe and print out.
 /// The handling of the recevied message is up to the user, no logic is provided
 
-fn got_message(msg: UadpNetworkMessage){
+fn got_message(msg: UadpNetworkMessage) {
     println!("Got new Message: ");
-    if let Some(pid) = &msg.header.publisher_id{
+    if let Some(pid) = &msg.header.publisher_id {
         println!("PublisherId={}", pid);
     }
     if let Some(gp) = &msg.group_header {
@@ -22,15 +22,11 @@ fn got_message(msg: UadpNetworkMessage){
     for it in iter {
         println!("Dataset {}", it);
     }
-    if let Some(timestamp) = &msg.timestamp{
-        println!(
-            "Timestamp: {}",
-            timestamp
-        );
+    if let Some(timestamp) = &msg.timestamp {
+        println!("Timestamp: {}", timestamp);
         println!("Picoseconds: {}", msg.picoseconds.unwrap_or(0_u16));
     }
-    
-    
+
     for p in msg.promoted_fields.iter() {
         println!("Promotedfields: {}", p);
     }
@@ -86,14 +82,14 @@ fn got_message(msg: UadpNetworkMessage){
 fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     let url = "224.0.0.22:4840"; // opc.udp://239.0.0.1:4840/
-                                //let url = "224.0.0.22:4840";
+                                 //let url = "224.0.0.22:4840";
     let data_source = SimpleAddressSpace::new_arc_lock();
     let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), data_source)?;
     let receiver = pubsub.create_receiver()?;
-    loop{
+    loop {
         match receiver.receive_msg() {
             Ok(msg) => got_message(msg),
-            Err(e) => return Err(e)
+            Err(e) => return Err(e),
         };
     }
 }
