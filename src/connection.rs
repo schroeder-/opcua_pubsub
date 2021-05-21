@@ -289,7 +289,7 @@ impl PubSubConnection {
                 }
             }
         }
-        self.network_message_no += net_offset;
+        self.network_message_no = self.network_message_no.wrapping_add(net_offset);
         for (msg, id) in msgs.iter() {
             let mut c = Vec::new();
             match msg.encode(&mut c) {

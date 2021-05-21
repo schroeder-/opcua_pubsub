@@ -31,7 +31,7 @@ fn main() -> Result<(), StatusCode> {
                 var,
             )));
         pubsub.send(&mut msg)?;
-        p += 1;
+        p = p.wrapping_add(1);
         thread::sleep(time::Duration::from_millis(1000));
     }
 }

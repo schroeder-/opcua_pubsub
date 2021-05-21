@@ -278,10 +278,10 @@ impl DataSetWriter {
         if let Some(data) = dataset {
             let mut message = UadpDataSetMessage::new(data);
             self.generate_header(&mut message);
-            self.sequence_no += 1;
+            self.sequence_no += self.sequence_no.wrapping_add(1);
             Some(message)
         } else {
-            self.sequence_no += 1;
+            self.sequence_no += self.sequence_no.wrapping_add(1);
             None
         }
     }
@@ -427,7 +427,7 @@ impl WriterGroup {
         if message.dataset.is_empty() {
             None
         } else {
-            self.sequence_no += 1;
+            self.sequence_no = self.sequence_no.wrapping_add(1);
             Some(message)
         }
     }
