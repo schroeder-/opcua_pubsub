@@ -1,7 +1,10 @@
+use crate::connection::PubSubDataSourceT;
 use crate::message::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
-use crate::pubdataset::PubSubFieldMetaData;
-use log::error;
-use opcua_types::{string::UAString, Variant};
+use crate::pubdataset::{PubSubFieldMetaData, SubscribedDataSet, UpdateTarget};
+use std::sync::{Arc, RwLock};
+
+use log::{error, warn};
+use opcua_types::{status_code::StatusCode, string::UAString, DataValue, DateTime, Variant};
 /// Reader group
 pub struct ReaderGroup {
     pub name: UAString,
@@ -24,6 +27,7 @@ pub struct DataSetReader {
     writer_group_id: u16,
     dataset_writer_id: u16,
     fields: Vec<PubSubFieldMetaData>,
+    sub_data_set: SubscribedDataSet,
 }
 
 impl DataSetReaderBuilder {
@@ -62,6 +66,7 @@ impl DataSetReaderBuilder {
             writer_group_id: self.writer_group_id,
             dataset_writer_id: self.dataset_writer_id,
             fields: Vec::new(),
+            sub_data_set: SubscribedDataSet::new(),
         }
     }
 }
@@ -73,10 +78,15 @@ impl ReaderGroup {
             reader: Vec::new(),
         }
     }
+
     /// Check the message and forward it to the datasets
-    pub fn handle_message(&self, msg: &UadpNetworkMessage) {
+    pub fn handle_message(
+        &self,
+        msg: &UadpNetworkMessage,
+        data_source: &Arc<RwLock<PubSubDataSourceT>>,
+    ) {
         for r in self.reader.iter() {
-            r.handle_message(msg);
+            r.handle_message(msg, &data_source);
         }
     }
     /// Adds Dataset to the group
@@ -116,7 +126,19 @@ impl DataSetReader {
         return None;
     }
 
-    fn handle_fields(&self, ds: &UadpDataSetMessage) {
+    fn handle_fields(&self, ds: &UadpDataSetMessage) -> Vec<UpdateTarget> {
+        let mut ret = Vec::new();
+        let server_t = DateTime::now();
+        let status = match ds.header.status {
+            Some(s) => StatusCode::from_u32(s as u32).unwrap_or(StatusCode::Good),
+            None => StatusCode::Good,
+        };
+        let source_t = if let Some(dt) = &ds.header.time_stamp{
+            dt.clone()
+        } else {
+            DateTime::now()
+        };
+
         match &ds.data {
             UadpMessageType::KeyDeltaFrameRaw(_) => {
                 error!("Raw Frames not implemented");
@@ -126,15 +148,12 @@ impl DataSetReader {
                     let p = *id as usize;
                     if p < self.fields.len() {
                         let f = &self.fields[p];
-                        println!(
-                            "Field {}: {}",
-                            f.name(),
-                            v.value.as_ref().unwrap_or(&Variant::String("Error".into()))
-                        );
+                        ret.push(UpdateTarget(f.data_set_field_id().clone(), v.clone(), f));
                     } else {
-                        println!(
-                            "Unknown field {} : value: {}",
+                        warn!(
+                            "Unknown field {} in {} : value: {}",
                             id,
+                            self.name,
                             v.value.as_ref().unwrap_or(&Variant::String("Error".into()))
                         );
                     }
@@ -145,9 +164,13 @@ impl DataSetReader {
                     let p = *id as usize;
                     if p < self.fields.len() {
                         let f = &self.fields[p];
-                        println!("Field {}: {}", f.name(), v);
+                        let mut dv = DataValue::value_only(v.clone());
+                        dv.source_timestamp = Some(source_t.clone());
+                        dv.server_timestamp = Some(server_t.clone());
+                        dv.status = Some(status);
+                        ret.push(UpdateTarget(f.data_set_field_id().clone(), dv, f));
                     } else {
-                        println!("Unknown field {} : value: {}", p, v);
+                        warn!("Unknown field {} in {}: value: {}", p, self.name, v);
                     }
                 }
             }
@@ -155,15 +178,12 @@ impl DataSetReader {
                 for (p, v) in vals.iter().enumerate() {
                     if p < self.fields.len() {
                         let f = &self.fields[p];
-                        println!(
-                            "Field {}: {}",
-                            f.name(),
-                            v.value.as_ref().unwrap_or(&Variant::String("Error".into()))
-                        );
+                        ret.push(UpdateTarget(f.data_set_field_id().clone(), v.clone(), f));
                     } else {
-                        println!(
-                            "Unknown field {} : value: {}",
+                        warn!(
+                            "Unknown field {} in {} : value: {}",
                             p,
+                            self.name,
                             v.value.as_ref().unwrap_or(&Variant::String("Error".into()))
                         );
                     }
@@ -177,9 +197,13 @@ impl DataSetReader {
                 for (p, v) in vals.iter().enumerate() {
                     if p < self.fields.len() {
                         let f = &self.fields[p];
-                        println!("Field {}: {}", f.name(), v);
+                        let mut dv = DataValue::value_only(v.clone());
+                        dv.source_timestamp = Some(source_t.clone());
+                        dv.server_timestamp = Some(server_t.clone());
+                        dv.status = Some(status);
+                        ret.push(UpdateTarget(f.data_set_field_id().clone(), dv, f));
                     } else {
-                        println!("Unknown field {} : value: {}", p, v);
+                        warn!("Unknown field {} in {}: value: {}", p, self.name, v);
                     }
                 }
             }
@@ -190,18 +214,30 @@ impl DataSetReader {
                 error!("Event Message not supported in Dataset {}!", self.name);
             }
         }
+        return ret;
     }
     /// Handle a message if it matches the writer
-    pub fn handle_message(&self, msg: &UadpNetworkMessage) {
+    pub fn handle_message(
+        &self,
+        msg: &UadpNetworkMessage,
+        data_source: &Arc<RwLock<PubSubDataSourceT>>,
+    ) {
         if let Some(idx) = self.check_message(msg) {
             if idx < msg.dataset.len() {
                 let ds = &msg.dataset[idx];
-                self.handle_fields(ds);
+                let res = self.handle_fields(ds);
+                if res.len() > 0 {
+                    self.sub_data_set.update_targets(res, &data_source);
+                }
             }
         }
     }
 
     pub fn add_field(&mut self, field: PubSubFieldMetaData) {
         self.fields.push(field);
+    }
+
+    pub fn sub_data_set(&mut self) -> &mut SubscribedDataSet {
+        &mut self.sub_data_set
     }
 }

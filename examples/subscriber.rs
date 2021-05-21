@@ -5,7 +5,6 @@
 // Example subscribes to values from pubsub and add them to server variables
 use opcua_pubsub::prelude::*;
 use opcua_server::prelude::*;
-use std::array::IntoIter;
 use std::env;
 use std::sync::{Arc, RwLock};
 
@@ -35,10 +34,12 @@ fn generate_namespace(server: &Server) -> u16 {
             &NodeId::objects_folder_id(),
         )
         .unwrap();
+    let v0_node = NodeId::new(ns, 4);
     let v1_node = NodeId::new(ns, 1);
     let v2_node = NodeId::new(ns, 2);
     let v3_node = NodeId::new(ns, 3);
     let vars = vec![
+        Variable::new(&v0_node, "Time", "Time", DateTime::null()),
         Variable::new(&v1_node, "Int32Var", "Int32Var", 4444 as i32),
         Variable::new(&v2_node, "Int64Var", "Int64Var", 12345 as i64),
         Variable::new(&v3_node, "BoolToggle", "BoolToggle", false),
@@ -67,25 +68,37 @@ fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnecti
         .writer_group_id(100)
         .dataset_writer_id(62541)
         .build();
-    IntoIter::new([
+    // Add the expected fields as MetaData
+    let fields = [
         PubSubFieldMetaDataBuilder::new()
-            //.data_type(&DataTypeId::DateTime)
+            .data_type(&DataTypeId::DateTime)
             .name("DateTime".into())
-            .build(),
+            .insert(&mut dsr),
         PubSubFieldMetaDataBuilder::new()
             .data_type(&DataTypeId::Int32)
-            //.name("Int32".into())
-            .build(),
+            .name("Int32".into())
+            .insert(&mut dsr),
         PubSubFieldMetaDataBuilder::new()
             .data_type(&DataTypeId::Int64)
             .name("Int64".into())
-            .build(),
+            .insert(&mut dsr),
         PubSubFieldMetaDataBuilder::new()
             .data_type(&DataTypeId::Boolean)
             .name("ToogleBool".into())
-            .build(),
-    ])
-    .for_each(|x| dsr.add_field(x));
+            .insert(&mut dsr),
+    ];
+    for j in 0..4{
+        let i = if j == 0{
+            4
+        } else {
+            j
+        };
+        let x = &fields[j];
+        // Finaly target server variables as destination for the values
+        DataSetTargetBuilder::new_from_guid(x.clone())
+            .target_node_id(&NodeId::new(ns, i as u32))
+            .insert(&mut dsr);
+    }
     rg.add_dataset_reader(dsr);
     {
         let mut ps = pubsub.write().unwrap();

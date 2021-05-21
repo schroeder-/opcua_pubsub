@@ -4,7 +4,9 @@
 
 use crate::message::UadpNetworkMessage;
 use crate::network::{UadpNetworkConnection, UadpNetworkReceiver};
-use crate::pubdataset::{DataSetInfo, Promoted, PublishedDataSet};
+use crate::pubdataset::{
+    DataSetInfo, DataSetTarget, Promoted, PubSubFieldMetaData, PublishedDataSet,
+};
 use crate::reader::ReaderGroup;
 use crate::writer::WriterGroup;
 use log::{error, warn};
@@ -17,9 +19,10 @@ use std::sync::{Arc, RwLock};
 
 pub trait PubSubDataSource {
     fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, ()>;
+    fn set_pubsub_value(&mut self, target: &DataSetTarget, dv: DataValue, meta: &PubSubFieldMetaData);
 }
 
-type PubSubDataSourceT = dyn PubSubDataSource + Sync + Send;
+pub type PubSubDataSourceT = dyn PubSubDataSource + Sync + Send;
 
 pub struct SimpleAddressSpace {
     node_map: HashMap<NodeId, DataValue>,
@@ -52,6 +55,16 @@ impl PubSubDataSource for SimpleAddressSpace {
             None => Err(()),
         }
     }
+
+    fn set_pubsub_value(&mut self, target: &DataSetTarget, dv: DataValue, _meta: &PubSubFieldMetaData) {
+        let nid = &target.0.target_node_id;
+        match &target.update_dv(dv) {
+                Ok(res) => {
+                    self.node_map.insert(nid.clone(), res.clone());
+                },
+                Err(err) => error!("Couldn't update variable {} -> {}", nid, err),
+        };
+    }
 }
 
 #[cfg(feature = "server-integration")]
@@ -61,6 +74,18 @@ use opcua_server::address_space::AddressSpace;
 impl PubSubDataSource for AddressSpace {
     fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, ()> {
         self.get_variable_value(nid)
+    }
+
+    fn set_pubsub_value(&mut self, target: &DataSetTarget, dv: DataValue, meta: &PubSubFieldMetaData) {
+        let nid = &target.0.target_node_id;
+        if let Some(v) = self.find_variable_mut(nid){
+            if let Err(err) = target.update_variable(dv, v){
+                error!("Couldn't update variable {} -> {}", nid, err);
+            }
+        } 
+        else {
+            error!("Node {} not found -> {}", nid, meta.name());
+        }
     }
 }
 
@@ -195,9 +220,12 @@ impl PubSubConnection {
         self.reader.push(group);
     }
 
-    pub fn handle_message(&self, msg: UadpNetworkMessage) {
+    pub fn handle_message(
+        &self,
+        msg: UadpNetworkMessage,
+    ) {
         for rg in self.reader.iter() {
-            rg.handle_message(&msg);
+            rg.handle_message(&msg, &self.data_source);
         }
     }
 

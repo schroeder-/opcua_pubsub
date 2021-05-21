@@ -8,19 +8,21 @@ The implementation is based on the foundation of the crate [opcua](https://githu
 
 Currently only standalone subscriber and publisher via UADP are supported, see examples standalone_subscriber and standalone_publisher. The subscriber is tested against [open62541](https://open62541.org/) 
 
+Warning this crate is in prototyping stage! Library interfaces will like change.
+
 # Features
 * [x] Pubsub Messages
 * [ ] Standalone Subscription
 * [x] Standalone Publisher
 * [x] integrated Subscription
-* [ ] integrated Publisher
+* [x] integrated Publisher
 * [ ] PubSub EventLoop
 * [ ] Tokio support
 ## UADP (Pubsub via Multicast UDP)
 
 * [x] UADP Data Messages
 * [x] UADP Delta Messages
-* [x] UADP Events Messages
+* [ ] UADP Events Messages
 * [x] UADP Keepalive Message
 * [ ] UADP Chunked Messages
 * [ ] UADP Discovery
@@ -40,7 +42,7 @@ Currently only standalone subscriber and publisher via UADP are supported, see e
 * [x] SubscripedDataSet
 * [x] ReaderGroup
 * [x] DataSetReader
-* [ ] Link DataSet with DataSource
+* [x] Link DataSet with DataSource
 * [ ] Information Model
 
 ## WriterGroup
@@ -49,6 +51,10 @@ Currently only standalone subscriber and publisher via UADP are supported, see e
 * [ ] KeepAlive
 * [ ] DeltaFrames
 * [ ] Max message length
+
+## General
+* [ ] Conform specs for alle points
+* [ ] Expand integration tests and add more tests
 # License
 
 The code is licenced under [MPL-2.0](https://opensource.org/licenses/MPL-2.0). Like all open source code, you use this code at your own risk.

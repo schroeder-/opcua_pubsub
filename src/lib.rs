@@ -1,6 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
+pub mod callback;
 pub mod connection;
 pub mod message;
 mod network;
@@ -11,7 +12,7 @@ pub mod prelude {
     pub use crate::connection::{PubSubConnection, PubSubConnectionBuilder};
     pub use crate::connection::{PubSubDataSource, SimpleAddressSpace};
     pub use crate::pubdataset::{
-        DataSetFieldBuilder, PubSubFieldMetaDataBuilder, PublishedDataSet,
+        DataSetFieldBuilder, DataSetTargetBuilder, PubSubFieldMetaDataBuilder, PublishedDataSet,
     };
     pub use crate::reader::{DataSetReaderBuilder, ReaderGroup};
     pub use crate::writer::{DataSetWriterBuilder, WriterGroupBuilder};
@@ -21,7 +22,7 @@ pub mod prelude {
     pub use opcua_types::status_code::StatusCode;
     pub use opcua_types::string::UAString;
     pub use opcua_types::{
-        DataSetFieldContentMask, DataTypeId, DataValue, DateTime, NodeId,
+        DataSetFieldContentMask, DataTypeId, DataValue, DateTime, NodeId, OverrideValueHandling,
         UadpDataSetMessageContentMask, UadpNetworkMessageContentMask, Variant,
     };
 }

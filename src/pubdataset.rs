@@ -2,17 +2,20 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 use crate::connection::PubSubDataSource;
+use crate::connection::PubSubDataSourceT;
+use crate::reader::DataSetReader;
 #[cfg(feature = "server-integration")]
 use opcua_server::prelude::*;
 use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
 use opcua_types::Guid;
-use opcua_types::NodeId;
 use opcua_types::VariantTypeId;
 use opcua_types::{AttributeId, DateTime, DeadbandType, LocalizedText};
 use opcua_types::{ConfigurationVersionDataType, PublishedVariableDataType};
 use opcua_types::{DataValue, FieldMetaData, Variant};
+use opcua_types::{FieldTargetDataType, NodeId, OverrideValueHandling};
 use std::convert::TryFrom;
+use std::sync::{Arc, RwLock};
 
 pub struct Promoted(pub bool);
 /// Trait to implement for data access
@@ -62,6 +65,10 @@ pub struct PubSubFieldMetaData(FieldMetaData);
 impl PubSubFieldMetaData {
     pub fn name(&self) -> &UAString {
         &self.0.name
+    }
+
+    pub fn data_set_field_id(&self) -> &Guid {
+        &self.0.data_set_field_id
     }
     /// Generates a the configuration from a existing server variable
     #[cfg(feature = "server-integration")]
@@ -120,6 +127,12 @@ impl PubSubFieldMetaDataBuilder {
 
     pub fn build(self) -> PubSubFieldMetaData {
         PubSubFieldMetaData(self.data)
+    }
+
+    pub fn insert(self, reader: &mut DataSetReader) -> Guid{
+        let guid = self.data.data_set_field_id.clone();
+        reader.add_field(PubSubFieldMetaData(self.data));
+        return guid;
     }
 }
 
@@ -228,5 +241,124 @@ impl PublishedDataSet {
             .iter()
             .map(|d| d.get_data(addr))
             .collect()
+    }
+}
+
+/// DataSetTarget wraps FiedlTargetDataType
+pub struct DataSetTarget(pub FieldTargetDataType);
+
+impl DataSetTarget {
+    pub fn update_dv(&self, dv: DataValue) -> Result<DataValue, StatusCode> {
+        //@TODO implement correct handle override values usw.
+        Ok(dv)
+    }
+
+    #[cfg(feature = "server-integration")]
+    pub fn update_variable(&self, dv: DataValue, var: &mut Variable) -> Result<(), StatusCode> {
+        //@TODO implement correct handle override values usw.
+        var.set_value_direct(
+            dv.value.unwrap_or_default(),
+            dv.status.unwrap_or(StatusCode::Good),
+            &dv.server_timestamp.unwrap_or(DateTime::now()),
+            &dv.source_timestamp.unwrap_or(DateTime::now()),
+        )
+    }
+}
+
+pub struct DataSetTargetBuilder {
+    data: FieldTargetDataType,
+}
+
+impl DataSetTargetBuilder {
+    /// Generates build from an guid of field metadata
+    pub fn new_from_guid(guid: Guid) -> Self{
+        DataSetTargetBuilder {
+            data: FieldTargetDataType {
+                data_set_field_id: guid,
+                receiver_index_range: UAString::null(),
+                target_node_id: NodeId::null(),
+                attribute_id: AttributeId::Value as u32,
+                write_index_range: UAString::null(),
+                override_value_handling: OverrideValueHandling::LastUsableValue,
+                override_value: Variant::Empty,
+            },
+        }
+    }
+    /// Needs guid from field metadata for linking of read values to the variable
+    pub fn new(ds: &PubSubFieldMetaData) -> Self {
+        Self::new_from_guid(ds.data_set_field_id().clone())
+    }
+
+    pub fn writer_index_range<'a>(&'a mut self, range: &UAString) -> &'a mut Self {
+        self.data.write_index_range = range.clone();
+        self
+    }
+
+    pub fn reader_index_range<'a>(&'a mut self, range: &UAString) -> &'a mut Self {
+        self.data.write_index_range = range.clone();
+        self
+    }
+
+    pub fn target_node_id<'a>(&'a mut self, target: &NodeId) -> &'a mut Self {
+        self.data.target_node_id = target.clone();
+        self
+    }
+
+    pub fn attribute_id<'a>(&'a mut self, attr: AttributeId) -> &'a mut Self {
+        self.data.attribute_id = attr as u32;
+        self
+    }
+
+    pub fn override_value_handling<'a>(
+        &'a mut self,
+        ovhandling: OverrideValueHandling,
+    ) -> &'a mut Self {
+        self.data.override_value_handling = ovhandling;
+        self
+    }
+
+    pub fn override_value<'a>(&'a mut self, var: Variant) -> &'a mut Self {
+        self.data.override_value = var;
+        self
+    }
+
+    pub fn build(&self) -> DataSetTarget {
+        DataSetTarget(self.data.clone())
+    }
+
+    pub fn insert(&self, reader: &mut DataSetReader) {
+        reader.sub_data_set().add_target(DataSetTarget(self.data.clone()))
+    }
+}
+
+/// Contains the information what todo with variables
+pub struct SubscribedDataSet {
+    targets: Vec<DataSetTarget>,
+}
+
+pub struct UpdateTarget<'a>(pub Guid, pub DataValue, pub &'a PubSubFieldMetaData);
+
+impl SubscribedDataSet {
+    pub fn new() -> Self {
+        SubscribedDataSet {
+            targets: Vec::new(),
+        }
+    }
+
+    pub fn add_target(&mut self, target: DataSetTarget) {
+        self.targets.push(target);
+    }
+
+    pub fn update_targets(
+        &self,
+        data: Vec<UpdateTarget>,
+        data_source: &Arc<RwLock<PubSubDataSourceT>>,
+    ) {
+        let mut source = data_source.write().unwrap();
+        for UpdateTarget(guid, value, meta) in data {
+            if let Some(t) = self.targets.iter().find(|t| t.0.data_set_field_id == guid) {
+                source.set_pubsub_value(t, value, meta);
+            }
+        }
     }
 }
