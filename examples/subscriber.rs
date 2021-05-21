@@ -87,14 +87,10 @@ fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnecti
             .name("ToogleBool".into())
             .insert(&mut dsr),
     ];
-    for j in 0..4{
-        let i = if j == 0{
-            4
-        } else {
-            j
-        };
+    for j in 0..4 {
+        let i = if j == 0 { 4 } else { j };
         let x = &fields[j];
-        // Finaly target server variables as destination for the values
+        // Finally target server variables as destination for the values
         DataSetTargetBuilder::new_from_guid(x.clone())
             .target_node_id(&NodeId::new(ns, i as u32))
             .insert(&mut dsr);
@@ -113,14 +109,8 @@ fn main() -> Result<(), StatusCode> {
     let server = create_server();
     let ns = generate_namespace(&server);
     let pubsub = generate_pubsub(ns, &server)?;
-    // Atm drive the pubsub via thread
-    std::thread::spawn(move || {
-        let receiver = {
-            let ps = pubsub.write().unwrap();
-            ps.create_receiver().unwrap()
-        };
-        receiver.run(pubsub);
-    });
+    // Run the pubsub
+    PubSubConnection::run_thread(pubsub);
     // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
     server.run();
     Ok(())

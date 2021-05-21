@@ -310,6 +310,13 @@ impl WriterGroup {
             < DateTime::now().ticks()
     }
 
+    /// Calculate next time the writer has to write data
+    pub fn next_tick(&self) -> std::time::Duration {
+        // calc point in 100ns where next action takes place
+        let next = self.last_action.ticks() + (self.publishing_interval * 1000.0) as i64;
+        std::time::Duration::from_micros(((next - DateTime::now().ticks()) / 10) as u64)
+    }
+
     pub fn generate_message<T: DataSetInfo>(
         &mut self,
         network_no: u16,

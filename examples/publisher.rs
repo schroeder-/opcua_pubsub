@@ -105,15 +105,11 @@ fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnecti
 fn main() -> Result<(), StatusCode> {
     env::set_var("RUST_OPCUA_LOG", "INFO");
     opcua_console_logging::init();
-    let mut server = create_server();
+    let server = create_server();
     let ns = generate_namespace(&server);
     let pubsub = generate_pubsub(ns, &server)?;
-    let polling_time_ms = 1000;
-    // Atm drive the pubsub via polling action
-    server.add_polling_action(polling_time_ms, move || {
-        let mut ps = pubsub.write().unwrap();
-        ps.poll(polling_time_ms);
-    });
+    // Run pubsub
+    PubSubConnection::run_thread(pubsub);
     // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
     server.run();
     Ok(())

@@ -19,7 +19,12 @@ use std::sync::{Arc, RwLock};
 
 pub trait PubSubDataSource {
     fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, ()>;
-    fn set_pubsub_value(&mut self, target: &DataSetTarget, dv: DataValue, meta: &PubSubFieldMetaData);
+    fn set_pubsub_value(
+        &mut self,
+        target: &DataSetTarget,
+        dv: DataValue,
+        meta: &PubSubFieldMetaData,
+    );
 }
 
 pub type PubSubDataSourceT = dyn PubSubDataSource + Sync + Send;
@@ -56,13 +61,18 @@ impl PubSubDataSource for SimpleAddressSpace {
         }
     }
 
-    fn set_pubsub_value(&mut self, target: &DataSetTarget, dv: DataValue, _meta: &PubSubFieldMetaData) {
+    fn set_pubsub_value(
+        &mut self,
+        target: &DataSetTarget,
+        dv: DataValue,
+        _meta: &PubSubFieldMetaData,
+    ) {
         let nid = &target.0.target_node_id;
         match &target.update_dv(dv) {
-                Ok(res) => {
-                    self.node_map.insert(nid.clone(), res.clone());
-                },
-                Err(err) => error!("Couldn't update variable {} -> {}", nid, err),
+            Ok(res) => {
+                self.node_map.insert(nid.clone(), res.clone());
+            }
+            Err(err) => error!("Couldn't update variable {} -> {}", nid, err),
         };
     }
 }
@@ -76,14 +86,18 @@ impl PubSubDataSource for AddressSpace {
         self.get_variable_value(nid)
     }
 
-    fn set_pubsub_value(&mut self, target: &DataSetTarget, dv: DataValue, meta: &PubSubFieldMetaData) {
+    fn set_pubsub_value(
+        &mut self,
+        target: &DataSetTarget,
+        dv: DataValue,
+        meta: &PubSubFieldMetaData,
+    ) {
         let nid = &target.0.target_node_id;
-        if let Some(v) = self.find_variable_mut(nid){
-            if let Err(err) = target.update_variable(dv, v){
+        if let Some(v) = self.find_variable_mut(nid) {
+            if let Err(err) = target.update_variable(dv, v) {
                 error!("Couldn't update variable {} -> {}", nid, err);
             }
-        } 
-        else {
+        } else {
             error!("Node {} not found -> {}", nid, meta.name());
         }
     }
@@ -220,16 +234,43 @@ impl PubSubConnection {
         self.reader.push(group);
     }
 
-    pub fn handle_message(
-        &self,
-        msg: UadpNetworkMessage,
-    ) {
+    pub fn handle_message(&self, msg: UadpNetworkMessage) {
         for rg in self.reader.iter() {
             rg.handle_message(&msg, &self.data_source);
         }
     }
+    /// runs pubs in a new thread
+    /// currently 2 threads are used
+    pub fn run_thread(
+        pubsub: Arc<RwLock<Self>>,
+    ) -> (std::thread::JoinHandle<()>, std::thread::JoinHandle<()>) {
+        let pubsub_reader = pubsub.clone();
+        let th1 = std::thread::spawn(move || {
+            let receiver = {
+                let ps = pubsub_reader.write().unwrap();
+                ps.create_receiver().unwrap()
+            };
+            receiver.run(pubsub_reader.clone());
+        });
+        let th2 = std::thread::spawn(move || loop {
+            let delay = {
+                let mut ps = pubsub.write().unwrap();
+                ps.drive_writer()
+            };
+            std::thread::sleep(delay);
+        });
+        (th1, th2)
+    }
 
-    pub fn poll(&mut self, _timedelta: u64) {
+    /// runs the pubsub forever
+    pub fn run(self) {
+        let s = Arc::new(RwLock::new(self));
+        let (th1, th2) = Self::run_thread(s);
+        th1.join().unwrap();
+        th2.join().unwrap();
+    }
+    /// Runs all writer, that should run and returns the next call to pull
+    pub fn drive_writer(&mut self) -> std::time::Duration {
         let mut msgs = Vec::with_capacity(self.writer.len());
         let mut net_offset = 0;
         let inf = PubSubDataSetInfo {
@@ -262,6 +303,8 @@ impl PubSubConnection {
                 }
             }
         }
+        let ret = std::time::Duration::from_millis(500);
+        self.writer.iter().fold(ret, |a, w| a.min(w.next_tick()))
     }
 }
 

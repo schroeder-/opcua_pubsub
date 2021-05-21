@@ -78,12 +78,8 @@ fn main() -> Result<(), StatusCode> {
     let nodes: Vec<NodeId> = (0..3).map(|i| NodeId::new(0, i as u32)).collect();
     // Generating a pubsubconnection
     let pubsub = generate_pubsub(0, &data_source)?;
-    // Spawn a thread for sending pubsub messages
-    thread::spawn(move || loop {
-        thread::sleep(time::Duration::from_millis(100));
-        let mut ps = pubsub.write().unwrap();
-        ps.poll(100);
-    });
+    // Spawn a pubsub connection
+    PubSubConnection::run_thread(pubsub);
     // Simulate a working loop where data is produced
     let mut rng = rand::thread_rng();
     let mut i = 0;

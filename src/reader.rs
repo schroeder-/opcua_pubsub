@@ -133,7 +133,7 @@ impl DataSetReader {
             Some(s) => StatusCode::from_u32(s as u32).unwrap_or(StatusCode::Good),
             None => StatusCode::Good,
         };
-        let source_t = if let Some(dt) = &ds.header.time_stamp{
+        let source_t = if let Some(dt) = &ds.header.time_stamp {
             dt.clone()
         } else {
             DateTime::now()

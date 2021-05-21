@@ -129,7 +129,7 @@ impl PubSubFieldMetaDataBuilder {
         PubSubFieldMetaData(self.data)
     }
 
-    pub fn insert(self, reader: &mut DataSetReader) -> Guid{
+    pub fn insert(self, reader: &mut DataSetReader) -> Guid {
         let guid = self.data.data_set_field_id.clone();
         reader.add_field(PubSubFieldMetaData(self.data));
         return guid;
@@ -271,7 +271,7 @@ pub struct DataSetTargetBuilder {
 
 impl DataSetTargetBuilder {
     /// Generates build from an guid of field metadata
-    pub fn new_from_guid(guid: Guid) -> Self{
+    pub fn new_from_guid(guid: Guid) -> Self {
         DataSetTargetBuilder {
             data: FieldTargetDataType {
                 data_set_field_id: guid,
@@ -327,7 +327,9 @@ impl DataSetTargetBuilder {
     }
 
     pub fn insert(&self, reader: &mut DataSetReader) {
-        reader.sub_data_set().add_target(DataSetTarget(self.data.clone()))
+        reader
+            .sub_data_set()
+            .add_target(DataSetTarget(self.data.clone()))
     }
 }
 
