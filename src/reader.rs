@@ -1,5 +1,5 @@
 use crate::connection::PubSubDataSourceT;
-use crate::message::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
+use crate::message::uadp::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
 use crate::pubdataset::{PubSubFieldMetaData, SubscribedDataSet, UpdateTarget};
 use std::sync::{Arc, RwLock};
 

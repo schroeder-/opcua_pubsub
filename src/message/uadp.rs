@@ -1,6 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
+
 use log::{error, trace, warn};
 use opcua_types::status_code::StatusCode;
 use opcua_types::EncodingResult;
@@ -28,7 +29,7 @@ impl MessageHeaderFlags {
     const PUBLISHER_ID_STRING: u32 = 0b0000010000000000;
     const DATACLASS_SET_EN: u32 = 0b0000100000000000;
     const SECURITY_MODE_EN: u32 = 0b0001000000000000; //   If the SecurityMode is SIGN_1 or SIGNANDENCRYPT_2, this flag is set, message security is enabled and the SecurityHeader is contained in the NetworkMessage header.
-                                                      //   If this flag is not set, the SecurityHeader is omitted.
+                                                    //   If this flag is not set, the SecurityHeader is omitted.
     const TIMESTAMP_EN: u32 = 0b0010000000000000;
     const PICO_SECONDS_EN: u32 = 0b0100000000000000;
     const EXTENDED_FLAGS_2: u32 = 0b1000000000000000;
