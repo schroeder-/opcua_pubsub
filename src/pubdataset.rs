@@ -75,7 +75,7 @@ impl PubSubFieldMetaData {
     pub fn new_from_var(var: &Variable, dt: &DataTypeId) -> Self {
         let mut fmd = create_empty_field_meta_data();
         fmd.name = var.display_name().text;
-        fmd.description = var.description().unwrap_or(LocalizedText::null());
+        fmd.description = var.description().unwrap_or_else(LocalizedText::null);
         fmd.data_type = dt.into();
         fmd.built_in_type = VariantTypeId::try_from(&fmd.data_type)
             .unwrap_or(VariantTypeId::ExtensionObject)
@@ -132,7 +132,13 @@ impl PubSubFieldMetaDataBuilder {
     pub fn insert(self, reader: &mut DataSetReader) -> Guid {
         let guid = self.data.data_set_field_id.clone();
         reader.add_field(PubSubFieldMetaData(self.data));
-        return guid;
+        guid
+    }
+}
+
+impl Default for PubSubFieldMetaDataBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -160,12 +166,12 @@ impl DataSetFieldBuilder {
         }
     }
     /// Sets the nodeid for the variable tobe read
-    pub fn set_target_variable<'a>(&'a mut self, node_id: NodeId) -> &'a mut Self {
+    pub fn set_target_variable(&mut self, node_id: NodeId) -> &mut Self {
         self.published_variable = node_id;
         self
     }
     /// Sets the alias name
-    pub fn set_alias<'a>(&'a mut self, alias: UAString) -> &'a mut Self {
+    pub fn set_alias(&mut self, alias: UAString) -> &mut Self {
         self.alias = alias;
         self
     }
@@ -173,7 +179,7 @@ impl DataSetFieldBuilder {
     /// because they are always send in plaintext. On the other hand only promoted
     /// can send if only one dataset is send per message. Either set WriterGroup ording
     /// or only use one dataset writer per writergroup
-    pub fn set_promoted<'a>(&'a mut self, promoted: bool) -> &'a mut Self {
+    pub fn set_promoted(&mut self, promoted: bool) -> &mut Self {
         self.promoted = promoted;
         self
     }
@@ -203,6 +209,12 @@ impl DataSetFieldBuilder {
             published_variable_cfg: cfg,
         };
         pds.add_field(dsf);
+    }
+}
+
+impl Default for DataSetFieldBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -259,8 +271,8 @@ impl DataSetTarget {
         var.set_value_direct(
             dv.value.unwrap_or_default(),
             dv.status.unwrap_or(StatusCode::Good),
-            &dv.server_timestamp.unwrap_or(DateTime::now()),
-            &dv.source_timestamp.unwrap_or(DateTime::now()),
+            &dv.server_timestamp.unwrap_or_else(DateTime::now),
+            &dv.source_timestamp.unwrap_or_else(DateTime::now),
         )
     }
 }
@@ -289,35 +301,32 @@ impl DataSetTargetBuilder {
         Self::new_from_guid(ds.data_set_field_id().clone())
     }
 
-    pub fn writer_index_range<'a>(&'a mut self, range: &UAString) -> &'a mut Self {
+    pub fn writer_index_range(&mut self, range: &UAString) -> &mut Self {
         self.data.write_index_range = range.clone();
         self
     }
 
-    pub fn reader_index_range<'a>(&'a mut self, range: &UAString) -> &'a mut Self {
+    pub fn reader_index_range(&mut self, range: &UAString) -> &mut Self {
         self.data.write_index_range = range.clone();
         self
     }
 
-    pub fn target_node_id<'a>(&'a mut self, target: &NodeId) -> &'a mut Self {
+    pub fn target_node_id(&mut self, target: &NodeId) -> &mut Self {
         self.data.target_node_id = target.clone();
         self
     }
 
-    pub fn attribute_id<'a>(&'a mut self, attr: AttributeId) -> &'a mut Self {
+    pub fn attribute_id(&mut self, attr: AttributeId) -> &mut Self {
         self.data.attribute_id = attr as u32;
         self
     }
 
-    pub fn override_value_handling<'a>(
-        &'a mut self,
-        ovhandling: OverrideValueHandling,
-    ) -> &'a mut Self {
+    pub fn override_value_handling(&mut self, ovhandling: OverrideValueHandling) -> &mut Self {
         self.data.override_value_handling = ovhandling;
         self
     }
 
-    pub fn override_value<'a>(&'a mut self, var: Variant) -> &'a mut Self {
+    pub fn override_value(&mut self, var: Variant) -> &mut Self {
         self.data.override_value = var;
         self
     }
@@ -362,5 +371,11 @@ impl SubscribedDataSet {
                 source.set_pubsub_value(t, value, meta);
             }
         }
+    }
+}
+
+impl Default for SubscribedDataSet {
+    fn default() -> Self {
+        Self::new()
     }
 }

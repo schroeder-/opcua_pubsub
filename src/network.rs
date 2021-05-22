@@ -38,7 +38,7 @@ impl UadpNetworkReceiver {
 
 impl UadpNetworkConnection {
     /// creates a new instance from ip:port string
-    pub fn new(url: &String) -> std::io::Result<Self> {
+    pub fn new(url: &str) -> std::io::Result<Self> {
         let addr = match SocketAddr::from_str(url) {
             Err(e) => {
                 error!("Uadp url: {} is not valid! {:}", url, e);
@@ -49,7 +49,7 @@ impl UadpNetworkConnection {
         let send_socket = new_sender(&addr)?;
         Ok(UadpNetworkConnection {
             send_socket,
-            addr: addr,
+            addr,
             addr2: socket2::SockAddr::from(addr),
         })
     }

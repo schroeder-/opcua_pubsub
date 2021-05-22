@@ -1,7 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-use log::{trace, warn};
+use log::{error, trace, warn};
 use opcua_types::status_code::StatusCode;
 use opcua_types::EncodingResult;
 use opcua_types::{
@@ -37,8 +37,8 @@ impl MessageHeaderFlags {
     const PROMOTEDFIELDS: u32 = 0b000100000000000000000; //Promoted fields can only be sent if the NetworkMessage contains only one DataSetMessage.
     const DISCOVERYREQUEST: u32 = 0b001000000000000000000;
     const DISCOVERYRESPONSE: u32 = 0b010000000000000000000;
-    fn contains(self: &Self, val: u32) -> bool {
-        return self.0 & val == val;
+    fn contains(&self, val: u32) -> bool {
+        self.0 & val == val
     }
 }
 
@@ -70,8 +70,8 @@ impl MessageDataSetFlags {
     const KEEP_ALIVE: u16 = 0b0000001100000000;
     const TIMESTAMP: u16 = 0b0001000000000000;
     const PICOSECONDS: u16 = 0b0010000000000000;
-    fn contains(self: &Self, val: u16) -> bool {
-        return self.0 & val == val;
+    fn contains(&self, val: u16) -> bool {
+        self.0 & val == val
     }
 }
 
@@ -85,7 +85,7 @@ pub struct UadpHeader {
 /// https://reference.opcfoundation.org/v104/Core/docs/Part4/7.38/
 /// UInt32 as seconds since the year 2000. It is used for representing Version changes
 type VersionTime = u32;
-type UadpDataSetPayload = Vec<u16>;
+type UadpDataSetPayload = [u16];
 
 /// Header of group part of an uadp message
 #[derive(PartialEq, Debug)]
@@ -156,13 +156,13 @@ impl UadpHeader {
         if msg.picoseconds.is_some() {
             f |= MessageHeaderFlags::PICO_SECONDS_EN;
         }
-        if msg.promoted_fields.len() > 0 {
+        if !msg.promoted_fields.is_empty() {
             f |= MessageHeaderFlags::PROMOTEDFIELDS;
         }
         if msg.group_header.is_some() {
             f |= MessageHeaderFlags::GROUP_HEADER_EN;
         }
-        if msg.dataset_payload.len() > 0 {
+        if !msg.dataset_payload.is_empty() {
             f |= MessageHeaderFlags::PAYLOAD_HEADER_EN;
         }
         if f > 0xFF {
@@ -520,7 +520,7 @@ impl UadpMessageType {
                     let sz = if pay_head.len() < x {
                         pay_head[x]
                     } else {
-                        assert!(false, "No PayHead found for raw header!");
+                        error!("No PayHead found for raw header!");
                         1500_u16
                     };
                     let mut raw = vec![0u8; sz as usize];
@@ -547,38 +547,36 @@ impl UadpMessageType {
         } else if flags.contains(MessageDataSetFlags::KEEP_ALIVE) {
             trace!("UadpKeepAlive Message");
             Ok(UadpMessageType::KeepAlive)
-        } else {
-            if flags.contains(MessageDataSetFlags::DATA_VALUE) {
-                let count = read_u16(c)? as usize;
-                let mut data = Vec::with_capacity(count);
-                for _ in 0..count {
-                    data.push(DataValue::decode(c, decoding_options)?);
-                }
-                Ok(UadpMessageType::KeyFrameDataValue(data))
-            } else if flags.contains(MessageDataSetFlags::RAW_DATA) {
-                let count = read_u16(c)? as usize;
-                let mut data = Vec::with_capacity(count);
-                for x in 0..count as usize {
-                    let sz = if pay_head.len() < x {
-                        pay_head[x]
-                    } else {
-                        assert!(false, "No PayHead found for raw header!");
-                        1500_u16
-                    };
-                    let mut raw = vec![0u8; sz as usize];
-                    let result = c.read_exact(&mut raw);
-                    process_decode_io_result(result)?;
-                    data.push(raw);
-                }
-                Ok(UadpMessageType::KeyFrameRaw(data))
-            } else {
-                let count = read_u16(c)? as usize;
-                let mut data = Vec::with_capacity(count);
-                for _ in 0..count {
-                    data.push(Variant::decode(c, decoding_options)?);
-                }
-                Ok(UadpMessageType::KeyFrameVariant(data))
+        } else if flags.contains(MessageDataSetFlags::DATA_VALUE) {
+            let count = read_u16(c)? as usize;
+            let mut data = Vec::with_capacity(count);
+            for _ in 0..count {
+                data.push(DataValue::decode(c, decoding_options)?);
             }
+            Ok(UadpMessageType::KeyFrameDataValue(data))
+        } else if flags.contains(MessageDataSetFlags::RAW_DATA) {
+            let count = read_u16(c)? as usize;
+            let mut data = Vec::with_capacity(count);
+            for x in 0..count as usize {
+                let sz = if pay_head.len() < x {
+                    pay_head[x]
+                } else {
+                    error!("No PayHead found for raw header!");
+                    1500_u16
+                };
+                let mut raw = vec![0u8; sz as usize];
+                let result = c.read_exact(&mut raw);
+                process_decode_io_result(result)?;
+                data.push(raw);
+            }
+            Ok(UadpMessageType::KeyFrameRaw(data))
+        } else {
+            let count = read_u16(c)? as usize;
+            let mut data = Vec::with_capacity(count);
+            for _ in 0..count {
+                data.push(Variant::decode(c, decoding_options)?);
+            }
+            Ok(UadpMessageType::KeyFrameVariant(data))
         }
     }
 }
@@ -658,7 +656,7 @@ impl UadpNetworkMessage {
         if let Some(v) = &self.group_header {
             sz += v.encode(stream)?;
         }
-        if self.dataset_payload.len() > 0 {
+        if !self.dataset_payload.is_empty() {
             sz += write_u8(stream, self.dataset_payload.len() as u8)?;
             for v in self.dataset_payload.iter() {
                 sz += v.encode(stream)?;
@@ -670,13 +668,13 @@ impl UadpNetworkMessage {
         if let Some(v) = self.picoseconds {
             sz += v.encode(stream)?;
         }
-        if self.promoted_fields.len() > 0 {
+        if !self.promoted_fields.is_empty() {
             sz += write_u16(stream, self.promoted_fields.len() as u16)?;
             for v in self.dataset.iter() {
                 sz += v.encode(stream)?;
             }
         }
-        if self.dataset_payload.len() > 1 {
+        if !self.dataset_payload.is_empty() {
             sz += write_u16(stream, self.dataset.len() as u16)?;
         }
         for v in self.dataset.iter() {
@@ -725,11 +723,11 @@ impl UadpNetworkMessage {
         let dataset = {
             let sz = if flags.contains(MessageHeaderFlags::PAYLOAD_HEADER_EN) {
                 match dataset_payload.len() {
-                    1 => 1 as usize,
+                    1 => 1_usize,
                     _ => read_u16(c)? as usize,
                 }
             } else {
-                1 as usize
+                1_usize
             };
             let mut v = Vec::with_capacity(sz);
             if sz > 0 {
@@ -752,6 +750,12 @@ impl UadpNetworkMessage {
             promoted_fields,
             dataset,
         })
+    }
+}
+
+impl Default for UadpNetworkMessage {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

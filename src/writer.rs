@@ -37,30 +37,27 @@ impl DataSetWriterBuilder {
         }
     }
 
-    pub fn set_name<'a>(&'a mut self, name: UAString) -> &'a mut Self {
+    pub fn set_name(&mut self, name: UAString) -> &mut Self {
         self.name = name;
         self
     }
 
-    pub fn set_dataset_writer_id<'a>(&'a mut self, id: u16) -> &'a mut Self {
+    pub fn set_dataset_writer_id(&mut self, id: u16) -> &mut Self {
         self.dataset_writer_id = id;
         self
     }
 
-    pub fn set_content_mask<'a>(&'a mut self, mask: DataSetFieldContentFlags) -> &'a mut Self {
+    pub fn set_content_mask(&mut self, mask: DataSetFieldContentFlags) -> &mut Self {
         self.field_content_mask = mask;
         self
     }
 
-    pub fn set_message_setting<'a>(
-        &'a mut self,
-        mask: UadpDataSetMessageContentFlags,
-    ) -> &'a mut Self {
+    pub fn set_message_setting(&mut self, mask: UadpDataSetMessageContentFlags) -> &mut Self {
         self.message_content_mask = mask;
         self
     }
 
-    pub fn set_key_frame_count<'a>(&'a mut self, key_frame_count: u32) -> &'a mut Self {
+    pub fn set_key_frame_count(&mut self, key_frame_count: u32) -> &mut Self {
         self.key_frame_count = key_frame_count;
         self
     }
@@ -169,9 +166,12 @@ impl DataSetWriter {
                             vec.push((
                                 cnt,
                                 // Variant Value or StatusCode if no Value
-                                d.value.unwrap_or(Variant::StatusCode(
-                                    d.status.unwrap_or(StatusCode::BadUnexpectedError),
-                                )),
+                                match d.value {
+                                    Some(x) => x,
+                                    None => Variant::StatusCode(
+                                        d.status.unwrap_or(StatusCode::BadUnexpectedError),
+                                    ),
+                                },
                             ));
                         }
                     }
@@ -230,9 +230,12 @@ impl DataSetWriter {
             if self.field_content_mask.is_empty() {
                 let mut vec = Vec::new();
                 for (_, d) in ds {
-                    let v = d.value.unwrap_or(Variant::StatusCode(
-                        d.status.unwrap_or(StatusCode::BadUnexpectedError),
-                    ));
+                    let v = match d.value {
+                        Some(x) => x,
+                        None => {
+                            Variant::StatusCode(d.status.unwrap_or(StatusCode::BadUnexpectedError))
+                        }
+                    };
                     vec.push(v);
                 }
                 Some(UadpMessageType::KeyFrameVariant(vec))
@@ -397,16 +400,15 @@ impl WriterGroup {
         for w in self.writer.iter_mut() {
             let vals = ds.collect_values(&w.dataset_name);
             // Only send Promoted Fields if 1 Dataset is send
-            if sz == 1 {
-                if self
+            if sz == 1
+                && self
                     .message_settings
                     .contains(UadpNetworkMessageContentFlags::PROMOTEDFIELDS)
-                {
-                    for (promoted, val) in vals.iter() {
-                        if promoted.0 {
-                            if let Some(v) = &val.value {
-                                message.promoted_fields.push(v.clone());
-                            }
+            {
+                for (promoted, val) in vals.iter() {
+                    if promoted.0 {
+                        if let Some(v) = &val.value {
+                            message.promoted_fields.push(v.clone());
                         }
                     }
                 }
@@ -460,30 +462,27 @@ impl WriterGroupBuilder {
         }
     }
 
-    pub fn set_name<'a>(&'a mut self, name: UAString) -> &'a mut Self {
+    pub fn set_name(&mut self, name: UAString) -> &mut Self {
         self.name = name;
         self
     }
 
-    pub fn set_keep_alive_time<'a>(&'a mut self, keep_alive_time: f64) -> &'a mut Self {
+    pub fn set_keep_alive_time(&mut self, keep_alive_time: f64) -> &mut Self {
         self.keep_alive_time = keep_alive_time;
         self
     }
 
-    pub fn set_publish_interval<'a>(&'a mut self, publish_interval: Duration) -> &'a mut Self {
+    pub fn set_publish_interval(&mut self, publish_interval: Duration) -> &mut Self {
         self.publish_interval = publish_interval;
         self
     }
 
-    pub fn set_group_id<'a>(&'a mut self, id: u16) -> &'a mut Self {
+    pub fn set_group_id(&mut self, id: u16) -> &mut Self {
         self.group_id = id;
         self
     }
 
-    pub fn set_message_setting<'a>(
-        &'a mut self,
-        mask: UadpNetworkMessageContentFlags,
-    ) -> &'a mut Self {
+    pub fn set_message_setting(&mut self, mask: UadpNetworkMessageContentFlags) -> &mut Self {
         self.message_settings = mask;
         self
     }
@@ -501,5 +500,11 @@ impl WriterGroupBuilder {
             group_version: generate_version_time(),
             last_action: DateTime::null(),
         }
+    }
+}
+
+impl Default for WriterGroupBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }

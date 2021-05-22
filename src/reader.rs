@@ -39,22 +39,22 @@ impl DataSetReaderBuilder {
             dataset_writer_id: 0_u16,
         }
     }
-    pub fn name<'a>(&'a mut self, name: UAString) -> &'a mut Self {
+    pub fn name(&mut self, name: UAString) -> &mut Self {
         self.name = name;
         self
     }
     /// Sets the targeted publisher id
-    pub fn publisher_id<'a>(&'a mut self, pub_id: Variant) -> &'a mut Self {
+    pub fn publisher_id(&mut self, pub_id: Variant) -> &mut Self {
         self.publisher_id = pub_id;
         self
     }
     /// Sets the targeted writer_group_id
-    pub fn writer_group_id<'a>(&'a mut self, writer_group_id: u16) -> &'a mut Self {
+    pub fn writer_group_id(&mut self, writer_group_id: u16) -> &mut Self {
         self.writer_group_id = writer_group_id;
         self
     }
     /// Sets the targeted dataset_writer
-    pub fn dataset_writer_id<'a>(&'a mut self, dataset_writer_id: u16) -> &'a mut Self {
+    pub fn dataset_writer_id(&mut self, dataset_writer_id: u16) -> &mut Self {
         self.dataset_writer_id = dataset_writer_id;
         self
     }
@@ -68,6 +68,12 @@ impl DataSetReaderBuilder {
             fields: Vec::new(),
             sub_data_set: SubscribedDataSet::new(),
         }
+    }
+}
+
+impl Default for DataSetReaderBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -123,7 +129,7 @@ impl DataSetReader {
                 }
             }
         }
-        return None;
+        None
     }
 
     fn handle_fields(&self, ds: &UadpDataSetMessage) -> Vec<UpdateTarget> {
@@ -214,7 +220,7 @@ impl DataSetReader {
                 error!("Event Message not supported in Dataset {}!", self.name);
             }
         }
-        return ret;
+        ret
     }
     /// Handle a message if it matches the writer
     pub fn handle_message(
@@ -226,7 +232,7 @@ impl DataSetReader {
             if idx < msg.dataset.len() {
                 let ds = &msg.dataset[idx];
                 let res = self.handle_fields(ds);
-                if res.len() > 0 {
+                if !res.is_empty() {
                     self.sub_data_set.update_targets(res, &data_source);
                 }
             }

@@ -27,7 +27,6 @@ pub mod prelude {
     };
 }
 
-use bitflags;
 use opcua_types::DataSetFieldContentMask;
 use opcua_types::UadpDataSetMessageContentMask;
 use opcua_types::UadpNetworkMessageContentMask;

@@ -17,8 +17,11 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::{Arc, RwLock};
 
+#[derive(Debug)]
+pub struct DataSourceErr;
+
 pub trait PubSubDataSource {
-    fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, ()>;
+    fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, DataSourceErr>;
     fn set_pubsub_value(
         &mut self,
         target: &DataSetTarget,
@@ -53,11 +56,17 @@ impl SimpleAddressSpace {
     }
 }
 
+impl Default for SimpleAddressSpace {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PubSubDataSource for SimpleAddressSpace {
-    fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, ()> {
+    fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, DataSourceErr> {
         match self.node_map.get(nid) {
             Some(v) => Ok(v.clone()),
-            None => Err(()),
+            None => Err(DataSourceErr),
         }
     }
 
@@ -82,8 +91,8 @@ use opcua_server::address_space::AddressSpace;
 
 #[cfg(feature = "server-integration")]
 impl PubSubDataSource for AddressSpace {
-    fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, ()> {
-        self.get_variable_value(nid)
+    fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, DataSourceErr> {
+        self.get_variable_value(nid).or(Err(DataSourceErr))
     }
 
     fn set_pubsub_value(
@@ -189,7 +198,7 @@ impl PubSubConnection {
                 return Err(StatusCode::BadCommunicationError);
             }
         };
-        return Ok(PubSubConnection {
+        Ok(PubSubConnection {
             profile,
             url,
             publisher_id,
@@ -199,7 +208,7 @@ impl PubSubConnection {
             reader: Vec::new(),
             network_message_no: 0,
             data_source,
-        });
+        })
     }
     /// Create a new UadpReceiver
     pub fn create_receiver(&self) -> Result<PubSubReceiver, StatusCode> {
@@ -210,7 +219,7 @@ impl PubSubConnection {
         Ok(PubSubReceiver { recv })
     }
     /// Send a UadpMessage
-    pub fn send(self: &Self, msg: &mut UadpNetworkMessage) -> Result<(), StatusCode> {
+    pub fn send(&self, msg: &mut UadpNetworkMessage) -> Result<(), StatusCode> {
         let mut c = Vec::new();
         msg.header.publisher_id = Some(self.publisher_id.clone());
         msg.encode(&mut c)?;
@@ -250,7 +259,7 @@ impl PubSubConnection {
                 let ps = pubsub_reader.write().unwrap();
                 ps.create_receiver().unwrap()
             };
-            receiver.run(pubsub_reader.clone());
+            receiver.run(pubsub_reader);
         });
         let th2 = std::thread::spawn(move || loop {
             let delay = {
@@ -347,22 +356,22 @@ impl PubSubConnectionBuilder {
         }
     }
 
-    pub fn set_name<'a>(&'a mut self, name: UAString) -> &'a mut Self {
+    pub fn set_name(&mut self, name: UAString) -> &mut Self {
         self.name = name;
         self
     }
 
-    pub fn set_url<'a>(&'a mut self, url: UAString) -> &'a mut Self {
+    pub fn set_url(&mut self, url: UAString) -> &mut Self {
         self.url = url;
         self
     }
 
-    pub fn set_enabled<'a>(&'a mut self, en: bool) -> &'a mut Self {
+    pub fn set_enabled(&mut self, en: bool) -> &mut Self {
         self.enabled = en;
         self
     }
 
-    pub fn set_publisher_id<'a>(&'a mut self, var: Variant) -> &'a mut Self {
+    pub fn set_publisher_id(&mut self, var: Variant) -> &mut Self {
         self.publisher_id = var;
         self
     }
@@ -371,10 +380,12 @@ impl PubSubConnectionBuilder {
         &self,
         data_source: Arc<RwLock<PubSubDataSourceT>>,
     ) -> Result<PubSubConnection, StatusCode> {
-        Ok(PubSubConnection::new(
-            self.url.to_string(),
-            self.publisher_id.clone(),
-            data_source,
-        )?)
+        PubSubConnection::new(self.url.to_string(), self.publisher_id.clone(), data_source)
+    }
+}
+
+impl Default for PubSubConnectionBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
