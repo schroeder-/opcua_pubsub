@@ -3,7 +3,7 @@
 // Copyright (C) 2021 Alexander Schrode
 
 use crate::message::UadpNetworkMessage;
-use crate::network::{UadpNetworkConnection, UadpNetworkReceiver};
+use crate::network::{ConnectionReceiver, UadpNetworkConnection, Connections};
 use crate::pubdataset::{
     DataSetInfo, DataSetTarget, Promoted, PubSubFieldMetaData, PublishedDataSet,
 };
@@ -16,8 +16,8 @@ use opcua_types::{ConfigurationVersionDataType, DataValue, DecodingLimits, NodeI
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::{Arc, RwLock, Mutex};
-use crate::callback::{OnReceiveValueFn, OnPubSubReciveValues};
-
+use crate::callback::{OnPubSubReciveValues};
+use url::Url;
 #[derive(Debug)]
 pub struct DataSourceErr;
 
@@ -123,7 +123,19 @@ pub struct PubSubConnectionBuilder {
 }
 
 pub enum PubSubTransportProfil {
-    UdpUadp, // http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp
+    /// http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp
+    UdpUadp,
+    ///
+    Mqtt,
+    ///
+    Amqp,
+    /// "http://opcfoundation.org/UA-Profile/Transport/pubsub-eth-uadp" unsupported
+    EthUadp 
+}
+
+pub enum PubSubEncoding{
+    Json,
+    Uadp
 }
 
 #[allow(dead_code)]
@@ -131,7 +143,7 @@ pub struct PubSubConnection {
     profile: PubSubTransportProfil,
     url: String,
     publisher_id: Variant,
-    connection: UadpNetworkConnection,
+    connection: Connections,
     datasets: Vec<PublishedDataSet>,
     writer: Vec<WriterGroup>,
     reader: Vec<ReaderGroup>,
@@ -141,7 +153,7 @@ pub struct PubSubConnection {
 }
 
 pub struct PubSubReceiver {
-    recv: UadpNetworkReceiver,
+    recv: ConnectionReceiver,
 }
 
 impl PubSubReceiver {
@@ -179,13 +191,47 @@ impl PubSubConnection {
         data_source: Arc<RwLock<PubSubDataSourceT>>,
         value_recv: Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>
     ) -> Result<Self, StatusCode> {
-        //@TODO check for correct scheme!! (opc.udp://xxxx)
-        //      currently every scheme is changed to udpuadp
-        //let url_udp = match (&url){
-        //    Ok(u) => u,
-        //    Err(_) => return Err(StatusCode::BadServerUriInvalid)
-        //};
-        let profile = PubSubTransportProfil::UdpUadp;
+        // from url choose which protocol to use
+        let (uri, profile) = match Url::parse(&url){
+            Ok(uri) => {
+                match uri.scheme(){
+                    "opc.udp" => {
+                        let u = format!("{}:{}", 
+                            uri.host_str().unwrap_or("localhost"), 
+                            uri.port().unwrap_or(4840));
+                        (u, PubSubTransportProfil::UdpUadp)
+                    },
+                    "mqtt" | "mqtts" => {
+                        (url.clone(), PubSubTransportProfil::Mqtt)
+                    },
+                    "amqps" | "amqps" => {
+                        (url.clone(), PubSubTransportProfil::Amqp)
+                    }
+                    _ => {
+                        error!("Unkown scheme uri: {} - {}", url, uri.scheme());
+                        return Err(StatusCode::BadInvalidArgument)
+                    }
+
+                }
+            },
+            Err(err) => {
+                error!("Invalid uri: {} - {}", url, err);
+                return Err(StatusCode::BadInvalidArgument)
+            }
+        }; 
+        // Check if transport profile is supported
+        let connection = match profile{
+            PubSubTransportProfil::UdpUadp => match UadpNetworkConnection::new(&uri) {
+                Ok(con) => Connections::Uadp(con),
+                Err(e) => {
+                    error!("Creating UadpNetworkconnection: {:-?}", e);
+                    return Err(StatusCode::BadCommunicationError);
+                }
+            },
+            #[cfg(feature="mqtt")]
+            PubSubTransportProfil::Mqtt => {},
+            _ => return Err(StatusCode::BadNotImplemented)
+        };
         // Check if publisher_id is valid the specs only allow UIntegers and String as id!
         match publisher_id {
             Variant::String(_)
@@ -195,13 +241,7 @@ impl PubSubConnection {
             | Variant::UInt64(_) => {}
             _ => return Err(StatusCode::BadTypeMismatch),
         }
-        let connection = match UadpNetworkConnection::new(&url) {
-            Ok(con) => con,
-            Err(e) => {
-                error!("Creating UadpNetworkconnection: {:-?}", e);
-                return Err(StatusCode::BadCommunicationError);
-            }
-        };
+        
         Ok(PubSubConnection {
             profile,
             url,
@@ -212,7 +252,7 @@ impl PubSubConnection {
             reader: Vec::new(),
             network_message_no: 0,
             data_source,
-            value_recv: None
+            value_recv: value_recv
         })
     }
     /// add datavalue recv callback when values change
@@ -407,5 +447,24 @@ impl PubSubConnectionBuilder {
 impl Default for PubSubConnectionBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_urn() {
+        let url = Url::parse("opc.udp://10.23.1.2:1234").unwrap();
+        println!("{:?}", url);
+        assert_eq!(url.scheme(), "opc.udp");
+        assert_eq!(url.host_str(), Some("10.23.1.2"));
+        assert_eq!(url.port(), Some(1234));
+        let url = Url::parse("amqps://abc:1234/xxx").unwrap();
+        assert_eq!(url.scheme(), "amqps");
+        let url = Url::parse("wss://abc:123/xxx").unwrap();
+        assert_eq!(url.scheme(), "wss");
+        let url = Url::parse("mqtts://abc:1234/hhas").unwrap();
+        assert_eq!(url.scheme(), "mqtts");
     }
 }

@@ -17,8 +17,8 @@ fn generate_pubsub(
     ns: u16,
     addr: &Arc<RwLock<SimpleAddressSpace>>,
 ) -> Result<Arc<RwLock<PubSubConnection>>, StatusCode> {
-    let url = "224.0.0.22:4840"; // "opc.udp://224.0.0.22:4840/";
-                                 // Create a pubsub connection
+    let url = "opc.udp://224.0.0.22:4840"; 
+    // Create a pubsub connection
     let pubsub = Arc::new(RwLock::new(
         PubSubConnectionBuilder::new()
             .set_url(url.into())

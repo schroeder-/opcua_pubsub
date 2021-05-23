@@ -81,8 +81,7 @@ fn got_message(msg: UadpNetworkMessage) {
 
 fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
-    let url = "224.0.0.22:4840"; // opc.udp://239.0.0.1:4840/
-                                 //let url = "224.0.0.22:4840";
+    let url = "opc.udp://224.0.0.22:4840";
     let data_source = SimpleAddressSpace::new_arc_lock();
     let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), data_source, None)?;
     let receiver = pubsub.create_receiver()?;

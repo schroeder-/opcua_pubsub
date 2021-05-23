@@ -3,16 +3,14 @@
 // Copyright (C) 2021 Alexander Schrode
 
 use opcua_pubsub::prelude::*;
-use std::sync::{Arc, RwLock};
-use std::{thread, time};
 /// In this example the subscriber gets a notify can when a Subscribed Dataset changed
 /// and can use this information
 
 
 // Generates the subscriber
 fn generate_pubsub(ns: u16) -> Result<PubSubConnection, StatusCode> {
-    let url = "224.0.0.22:4840"; // "opc.udp://224.0.0.22:4840/";
-                                 // Create a pubsub connection
+    let url = "opc.udp://224.0.0.22:4840"; 
+    // Create a pubsub connection
     let mut pubsub = PubSubConnectionBuilder::new()
             .set_url(url.into())
             .set_publisher_id(Variant::UInt16(2234))

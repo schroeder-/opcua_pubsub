@@ -16,7 +16,7 @@ fn uadp_message_test() -> Result<(), StatusCode> {
         "SIERRA", "TANGO", "UNIFORM", "VICTOR", "WHISKEY", "X-RAY", "YANKEE", "ZULU",
     ];
     let mut sended = Vec::new();
-    let url = "239.0.0.1:4840";
+    let url = "opc.udp://239.0.0.1:4840";
     let data_source = SimpleAddressSpace::new_arc_lock();
     let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), data_source, None)?;
     const CNT: usize = 100;
