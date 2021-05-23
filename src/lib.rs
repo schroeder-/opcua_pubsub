@@ -9,12 +9,13 @@ pub mod pubdataset;
 pub mod reader;
 pub mod writer;
 pub mod prelude {
+    pub use crate::callback::{OnReceiveValueFn};
     pub use crate::connection::{PubSubConnection, PubSubConnectionBuilder};
     pub use crate::connection::{PubSubDataSource, SimpleAddressSpace};
     pub use crate::pubdataset::{
-        DataSetFieldBuilder, DataSetTargetBuilder, PubSubFieldMetaDataBuilder, PublishedDataSet,
+        UpdateTarget, DataSetFieldBuilder, DataSetTargetBuilder, PubSubFieldMetaDataBuilder, PublishedDataSet,
     };
-    pub use crate::reader::{DataSetReaderBuilder, ReaderGroup};
+    pub use crate::reader::{DataSetReaderBuilder, ReaderGroup, DataSetReader};
     pub use crate::writer::{DataSetWriterBuilder, WriterGroupBuilder};
     pub use crate::{
         DataSetFieldContentFlags, UadpDataSetMessageContentFlags, UadpNetworkMessageContentFlags,

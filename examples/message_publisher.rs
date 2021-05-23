@@ -14,7 +14,7 @@ fn main() -> Result<(), StatusCode> {
                                 //let url = "224.0.0.22:4840";
                                 // create a dummy datasource not need in this configuration
     let data_source = SimpleAddressSpace::new_arc_lock();
-    let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), data_source)?;
+    let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), data_source, None)?;
     let strs = vec![
         "ALFA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL", "INDIA",
         "JULIETT", "KILO", "LIMA", "MIKE", "NOVEMBER", "OSCAR", "PAPA", "QUEBEC", "ROMEO",

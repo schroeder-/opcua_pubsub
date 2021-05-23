@@ -246,4 +246,8 @@ impl DataSetReader {
     pub fn sub_data_set(&mut self) -> &mut SubscribedDataSet {
         &mut self.sub_data_set
     }
+
+    pub fn name(&self) -> &UAString{
+        &self.name
+    }
 }

@@ -15,7 +15,8 @@ use opcua_types::string::UAString;
 use opcua_types::{ConfigurationVersionDataType, DataValue, DecodingLimits, NodeId, Variant};
 use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Mutex};
+use crate::callback::{OnReceiveValueFn, OnPubSubReciveValues};
 
 #[derive(Debug)]
 pub struct DataSourceErr;
@@ -118,6 +119,7 @@ pub struct PubSubConnectionBuilder {
     url: UAString,
     enabled: bool,
     publisher_id: Variant,
+    value_recv: Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>
 }
 
 pub enum PubSubTransportProfil {
@@ -135,6 +137,7 @@ pub struct PubSubConnection {
     reader: Vec<ReaderGroup>,
     network_message_no: u16,
     data_source: Arc<RwLock<PubSubDataSourceT>>,
+    value_recv: Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>
 }
 
 pub struct PubSubReceiver {
@@ -169,11 +172,12 @@ impl PubSubReceiver {
 }
 
 impl PubSubConnection {
-    /// accepts
+    /// Creats new Pubsub Connection
     pub fn new(
         url: String,
         publisher_id: Variant,
         data_source: Arc<RwLock<PubSubDataSourceT>>,
+        value_recv: Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>
     ) -> Result<Self, StatusCode> {
         //@TODO check for correct scheme!! (opc.udp://xxxx)
         //      currently every scheme is changed to udpuadp
@@ -208,8 +212,14 @@ impl PubSubConnection {
             reader: Vec::new(),
             network_message_no: 0,
             data_source,
+            value_recv: None
         })
     }
+    /// add datavalue recv callback when values change
+    pub fn set_datavalue_recv(&mut self, cb: Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>){
+        self.value_recv = cb;
+    }
+
     /// Create a new UadpReceiver
     pub fn create_receiver(&self) -> Result<PubSubReceiver, StatusCode> {
         let recv = match self.connection.create_receiver() {
@@ -353,6 +363,7 @@ impl PubSubConnectionBuilder {
             name: "UADP Connection 1".into(),
             enabled: true,
             publisher_id: 12345_u16.into(),
+            value_recv: None
         }
     }
 
@@ -376,11 +387,20 @@ impl PubSubConnectionBuilder {
         self
     }
 
+    pub fn add_value_receiver<T: OnPubSubReciveValues + Send + 'static>(&mut self, value_recv: T){
+        self.value_recv = Some(Arc::new(Mutex::new(value_recv)));
+    }
+
     pub fn build(
         &self,
         data_source: Arc<RwLock<PubSubDataSourceT>>,
     ) -> Result<PubSubConnection, StatusCode> {
-        PubSubConnection::new(self.url.to_string(), self.publisher_id.clone(), data_source)
+        Ok(PubSubConnection::new(
+            self.url.to_string(),
+            self.publisher_id.clone(),
+            data_source,
+            self.value_recv.clone()
+        )?)
     }
 }
 
