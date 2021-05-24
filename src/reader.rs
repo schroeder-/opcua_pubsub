@@ -1,7 +1,9 @@
+use crate::callback::OnPubSubReciveValues;
 use crate::connection::PubSubDataSourceT;
 use crate::message::uadp::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
+use crate::network::ReaderTransportSettings;
 use crate::pubdataset::{PubSubFieldMetaData, SubscribedDataSet, UpdateTarget};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use log::{error, warn};
 use opcua_types::{status_code::StatusCode, string::UAString, DataValue, DateTime, Variant};
@@ -17,6 +19,7 @@ pub struct DataSetReaderBuilder {
     publisher_id: Variant,
     writer_group_id: u16,
     dataset_writer_id: u16,
+    transport_settings: ReaderTransportSettings,
 }
 
 /// DataSetReader targets a publisher and the dataset
@@ -28,6 +31,7 @@ pub struct DataSetReader {
     dataset_writer_id: u16,
     fields: Vec<PubSubFieldMetaData>,
     sub_data_set: SubscribedDataSet,
+    transport_settings: ReaderTransportSettings,
 }
 
 impl DataSetReaderBuilder {
@@ -37,8 +41,32 @@ impl DataSetReaderBuilder {
             publisher_id: Variant::Empty,
             writer_group_id: 0_u16,
             dataset_writer_id: 0_u16,
+            transport_settings: ReaderTransportSettings::None,
         }
     }
+
+    pub fn new_for_broker(
+        topic: &UAString,
+        meta_topic: &UAString,
+        qos: opcua_types::BrokerTransportQualityOfService,
+    ) -> Self {
+        DataSetReaderBuilder {
+            name: "DataSet Reader".into(),
+            publisher_id: Variant::Empty,
+            writer_group_id: 0_u16,
+            dataset_writer_id: 0_u16,
+            transport_settings: ReaderTransportSettings::BrokerDataSetReader(
+                opcua_types::BrokerDataSetReaderTransportDataType {
+                    authentication_profile_uri: "".into(),
+                    meta_data_queue_name: meta_topic.clone(),
+                    queue_name: topic.clone(),
+                    requested_delivery_guarantee: qos,
+                    resource_uri: "".into(),
+                },
+            ),
+        }
+    }
+
     pub fn name(&mut self, name: UAString) -> &mut Self {
         self.name = name;
         self
@@ -67,6 +95,7 @@ impl DataSetReaderBuilder {
             dataset_writer_id: self.dataset_writer_id,
             fields: Vec::new(),
             sub_data_set: SubscribedDataSet::new(),
+            transport_settings: self.transport_settings.clone(),
         }
     }
 }
@@ -85,14 +114,21 @@ impl ReaderGroup {
         }
     }
 
+    /// Loads all transport settings to sub, this is needed for broker support
+    pub fn get_transport_cfg(&self) -> Vec<&ReaderTransportSettings> {
+        self.reader.iter().map(|r| r.transport_settings()).collect()
+    }
+
     /// Check the message and forward it to the datasets
     pub fn handle_message(
         &self,
+        topic: &UAString,
         msg: &UadpNetworkMessage,
         data_source: &Arc<RwLock<PubSubDataSourceT>>,
+        cb: &Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
     ) {
         for r in self.reader.iter() {
-            r.handle_message(msg, &data_source);
+            r.handle_message(topic, msg, &data_source, cb);
         }
     }
     /// Adds Dataset to the group
@@ -102,7 +138,13 @@ impl ReaderGroup {
 }
 
 impl DataSetReader {
-    fn check_message(&self, msg: &UadpNetworkMessage) -> Option<usize> {
+    /// Check if message is for this reader
+    fn check_message(&self, topic: &UAString, msg: &UadpNetworkMessage) -> Option<usize> {
+        if let ReaderTransportSettings::BrokerDataSetReader(cfg) = &self.transport_settings {
+            if topic != &cfg.queue_name {
+                return None;
+            }
+        }
         // Check if message is for this publisher_id
         if self.publisher_id != Variant::Empty {
             match &msg.header.publisher_id {
@@ -225,14 +267,20 @@ impl DataSetReader {
     /// Handle a message if it matches the writer
     pub fn handle_message(
         &self,
+        topic: &UAString,
         msg: &UadpNetworkMessage,
         data_source: &Arc<RwLock<PubSubDataSourceT>>,
+        cb: &Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
     ) {
-        if let Some(idx) = self.check_message(msg) {
+        if let Some(idx) = self.check_message(topic, msg) {
             if idx < msg.dataset.len() {
                 let ds = &msg.dataset[idx];
                 let res = self.handle_fields(ds);
                 if !res.is_empty() {
+                    if let Some(cb) = cb {
+                        let mut cb = cb.lock().unwrap();
+                        cb.data_recived(self, &res);
+                    }
                     self.sub_data_set.update_targets(res, &data_source);
                 }
             }
@@ -247,7 +295,11 @@ impl DataSetReader {
         &mut self.sub_data_set
     }
 
-    pub fn name(&self) -> &UAString{
+    pub fn name(&self) -> &UAString {
         &self.name
+    }
+
+    pub fn transport_settings(&self) -> &ReaderTransportSettings {
+        &self.transport_settings
     }
 }

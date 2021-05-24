@@ -9,13 +9,14 @@ pub mod pubdataset;
 pub mod reader;
 pub mod writer;
 pub mod prelude {
-    pub use crate::callback::{OnReceiveValueFn};
+    pub use crate::callback::OnReceiveValueFn;
     pub use crate::connection::{PubSubConnection, PubSubConnectionBuilder};
     pub use crate::connection::{PubSubDataSource, SimpleAddressSpace};
     pub use crate::pubdataset::{
-        UpdateTarget, DataSetFieldBuilder, DataSetTargetBuilder, PubSubFieldMetaDataBuilder, PublishedDataSet,
+        DataSetFieldBuilder, DataSetTargetBuilder, PubSubFieldMetaDataBuilder, PublishedDataSet,
+        UpdateTarget,
     };
-    pub use crate::reader::{DataSetReaderBuilder, ReaderGroup, DataSetReader};
+    pub use crate::reader::{DataSetReader, DataSetReaderBuilder, ReaderGroup};
     pub use crate::writer::{DataSetWriterBuilder, WriterGroupBuilder};
     pub use crate::{
         DataSetFieldContentFlags, UadpDataSetMessageContentFlags, UadpNetworkMessageContentFlags,
@@ -23,8 +24,9 @@ pub mod prelude {
     pub use opcua_types::status_code::StatusCode;
     pub use opcua_types::string::UAString;
     pub use opcua_types::{
-        DataSetFieldContentMask, DataTypeId, DataValue, DateTime, NodeId, OverrideValueHandling,
-        UadpDataSetMessageContentMask, UadpNetworkMessageContentMask, Variant,
+        BrokerTransportQualityOfService, DataSetFieldContentMask, DataTypeId, DataValue, DateTime,
+        NodeId, OverrideValueHandling, UadpDataSetMessageContentMask,
+        UadpNetworkMessageContentMask, Variant,
     };
 }
 

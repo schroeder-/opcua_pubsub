@@ -29,7 +29,7 @@ impl MessageHeaderFlags {
     const PUBLISHER_ID_STRING: u32 = 0b0000010000000000;
     const DATACLASS_SET_EN: u32 = 0b0000100000000000;
     const SECURITY_MODE_EN: u32 = 0b0001000000000000; //   If the SecurityMode is SIGN_1 or SIGNANDENCRYPT_2, this flag is set, message security is enabled and the SecurityHeader is contained in the NetworkMessage header.
-                                                    //   If this flag is not set, the SecurityHeader is omitted.
+                                                      //   If this flag is not set, the SecurityHeader is omitted.
     const TIMESTAMP_EN: u32 = 0b0010000000000000;
     const PICO_SECONDS_EN: u32 = 0b0100000000000000;
     const EXTENDED_FLAGS_2: u32 = 0b1000000000000000;
@@ -248,7 +248,22 @@ impl UadpHeader {
     }
 }
 
+impl Default for UadpGroupHeader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UadpGroupHeader {
+    pub fn new() -> Self {
+        UadpGroupHeader {
+            group_version: None,
+            network_message_no: None,
+            sequence_no: None,
+            writer_group_id: None,
+        }
+    }
+
     fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
         let mut flags: u8 = 0;
         if self.writer_group_id.is_some() {
@@ -506,15 +521,16 @@ impl UadpMessageType {
         pay_head: &UadpDataSetPayload,
     ) -> EncodingResult<Self> {
         if flags.contains(MessageDataSetFlags::DELTA_FRAME) {
+            let count = read_u16(c)? as usize;
+            // Remove clippy warning because it's mut data is different vector type
+            #[allow(clippy::branches_sharing_code)]
             if flags.contains(MessageDataSetFlags::DATA_VALUE) {
-                let count = read_u16(c)? as usize;
                 let mut data = Vec::with_capacity(count);
                 for _ in 0..count {
                     data.push((read_u16(c)?, DataValue::decode(c, decoding_options)?));
                 }
                 Ok(UadpMessageType::KeyDeltaFrameValue(data))
             } else if flags.contains(MessageDataSetFlags::RAW_DATA) {
-                let count = read_u16(c)? as usize;
                 let mut data = Vec::with_capacity(count);
                 for x in 0..count as usize {
                     let id = read_u16(c)?;
@@ -531,7 +547,6 @@ impl UadpMessageType {
                 }
                 Ok(UadpMessageType::KeyDeltaFrameRaw(data))
             } else {
-                let count = read_u16(c)? as usize;
                 let mut data = Vec::with_capacity(count);
                 for _ in 0..count {
                     data.push((read_u16(c)?, Variant::decode(c, decoding_options)?));
@@ -675,7 +690,8 @@ impl UadpNetworkMessage {
                 sz += v.encode(stream)?;
             }
         }
-        if !self.dataset_payload.is_empty() {
+        // Don't write payload len if only one dataset is contained via payload header
+        if self.dataset_payload.len() > 1 {
             sz += write_u16(stream, self.dataset.len() as u16)?;
         }
         for v in self.dataset.iter() {
@@ -777,14 +793,51 @@ mod tests {
 
         msg.encode(&mut data)?;
         let mut c = Cursor::new(data);
-        let dec = UadpNetworkMessage::decode(&mut c, &DecodingLimits::default())?;
+        let dec = match UadpNetworkMessage::decode(&mut c, &DecodingLimits::default()) {
+            Ok(d) => d,
+            Err(err) => panic!("decode failed {}", err),
+        };
         assert_eq!(dec.timestamp, msg.timestamp);
         assert_eq!(dec.dataset, msg.dataset);
+        assert_eq!(dec, msg);
         Ok(())
     }
     #[test]
     fn test_parts() -> Result<(), StatusCode> {
         let mut msg = UadpNetworkMessage::new();
+        let var = vec![Variant::from("Test123"), Variant::from(64)];
+        let mut ds = UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(var));
+        ds.header.cfg_major_version = Some(1234);
+        ds.header.cfg_minor_version = Some(12345);
+        ds.header.time_stamp = Some(DateTime::now());
+        msg.dataset.push(ds);
+
+        let mut data = Vec::new();
+        msg.encode(&mut data)?;
+        let mut c = Cursor::new(data);
+        let dec = match UadpNetworkMessage::decode(&mut c, &DecodingLimits::default()) {
+            Ok(d) => d,
+            Err(err) => panic!("decode failed {}", err),
+        };
+        assert_eq!(dec.timestamp, msg.timestamp);
+        assert_eq!(dec.dataset, msg.dataset);
+        assert_eq!(dec, msg);
+        Ok(())
+    }
+
+    #[test]
+    fn test_header() -> Result<(), StatusCode> {
+        let mut msg = UadpNetworkMessage::new();
+        msg.header.publisher_id = Some(12345_u16.into());
+        msg.header.dataset_class_id = Some(Guid::new());
+        msg.dataset_payload.push(1234);
+        let mut gp = UadpGroupHeader::new();
+        gp.group_version = Some(1234553_u32);
+        gp.network_message_no = Some(123_u16);
+        gp.sequence_no = Some(13_u16);
+        gp.writer_group_id = Some(555_u16);
+        msg.group_header = Some(gp);
+        msg.dataset_payload.push(1234);
         msg.timestamp = Some(opcua_types::DateTime::now());
         let var = vec![Variant::from("Test123"), Variant::from(64)];
         let mut ds = UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(var));
@@ -797,6 +850,7 @@ mod tests {
         msg.encode(&mut data)?;
         let mut c = Cursor::new(data);
         let dec = UadpNetworkMessage::decode(&mut c, &DecodingLimits::default())?;
+        assert_eq!(dec, msg);
         assert_eq!(dec.timestamp, msg.timestamp);
         assert_eq!(dec.dataset, msg.dataset);
         Ok(())

@@ -24,7 +24,8 @@ fn uadp_message_test() -> Result<(), StatusCode> {
     let handler = thread::spawn(move || -> Result<Vec<UadpNetworkMessage>, StatusCode> {
         let mut recived = Vec::new();
         for _ in 0..CNT {
-            recived.push(recv.receive_msg()?);
+            let (_, msg) = recv.receive_msg()?;
+            recived.push(msg);
         }
         Ok(recived)
     });

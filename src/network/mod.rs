@@ -4,52 +4,99 @@
 pub(crate) mod mqtt;
 pub(crate) mod uadp;
 
-pub(crate) use self::uadp::UadpNetworkConnection;
 pub(crate) use self::mqtt::MqttConnection;
+pub(crate) use self::uadp::UadpNetworkConnection;
 
-
+use self::mqtt::MqttReceiver;
 use self::uadp::UadpNetworkReceiver;
-use self::mqtt::MqttReceiever;
-use std::io;
+use log::error;
 use opcua_types::status_code::StatusCode;
-
+use opcua_types::BrokerWriterGroupTransportDataType;
+use std::io;
 /// Abstraction of Connection layer
-pub(crate) enum Connections{
+pub(crate) enum Connections {
     Uadp(UadpNetworkConnection),
-    Mqtt(MqttConnection)
+    Mqtt(MqttConnection),
 }
 
 /// Abstraction of Receiver
-pub enum ConnectionReceiver{
+pub enum ConnectionReceiver {
     Uadp(UadpNetworkReceiver),
-    Mqtt(MqttReceiever)
+    Mqtt(MqttReceiver),
 }
 
+#[derive(Clone)]
+pub enum TransportSettings {
+    None,
+    BrokerWrite(BrokerWriterGroupTransportDataType),
+    BrokerDataSetWrite(opcua_types::BrokerDataSetWriterTransportDataType),
+}
 
+#[derive(Clone)]
+pub enum ReaderTransportSettings {
+    None,
+    BrokerDataSetReader(opcua_types::BrokerDataSetReaderTransportDataType),
+}
 
-impl Connections{
+impl Connections {
     /// sends a multicast message
-    pub fn send(&self, b: &[u8]) -> io::Result<usize> {
-        match self{
+    pub fn send(&self, b: &[u8], settings: &TransportSettings) -> io::Result<usize> {
+        match self {
             Connections::Uadp(s) => s.send(b),
-            Connections::Mqtt(s) => s.send(b)
+            Connections::Mqtt(s) => match settings {
+                TransportSettings::BrokerWrite(_cfg) => s.publish(b, settings),
+                TransportSettings::BrokerDataSetWrite(_cfg) => s.publish(b, settings),
+                _ => {
+                    error!("mqtt need broker transport settings!");
+                    Err(std::io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "broker not configured",
+                    ))
+                }
+            },
         }
     }
-    // creates a receiver for udp messages
+    /// subscribe to data
+    pub fn subscribe(&self, settings: &ReaderTransportSettings) -> Result<(), StatusCode> {
+        match self {
+            Connections::Uadp(_s) => Ok(()), // Not supported
+            Connections::Mqtt(s) => match settings {
+                ReaderTransportSettings::BrokerDataSetReader(_cfg) => s.subscribe(settings),
+                _ => {
+                    error!("mqtt need broker transport settings!");
+                    Err(StatusCode::BadInvalidArgument)
+                }
+            },
+        }
+    }
+    /// unsubscribe to data
+    pub fn unsubscribe(&self, settings: &ReaderTransportSettings) -> Result<(), StatusCode> {
+        match self {
+            Connections::Uadp(_s) => Ok(()), // Not supported
+            Connections::Mqtt(s) => match settings {
+                ReaderTransportSettings::BrokerDataSetReader(_cfg) => s.unsubscribe(settings),
+                _ => {
+                    error!("mqtt need broker transport settings!");
+                    Err(StatusCode::BadInvalidArgument)
+                }
+            },
+        }
+    }
+
+    /// creates a receiver for udp messages
     pub fn create_receiver(&self) -> std::io::Result<ConnectionReceiver> {
-        Ok(match self{
+        Ok(match self {
             Connections::Uadp(s) => ConnectionReceiver::Uadp(s.create_receiver()?),
-            Connections::Mqtt(s) => ConnectionReceiver::Mqtt(s.create_receiver())
+            Connections::Mqtt(s) => ConnectionReceiver::Mqtt(s.create_receiver()),
         })
     }
 }
 
-impl ConnectionReceiver{
-    pub fn receive_msg(&self) -> Result<Vec<u8>, StatusCode> {
-        match self{
+impl ConnectionReceiver {
+    pub fn receive_msg(&self) -> Result<(String, Vec<u8>), StatusCode> {
+        match self {
             ConnectionReceiver::Mqtt(s) => s.receive_msg(),
-            ConnectionReceiver::Uadp(s) => s.receive_msg()
+            ConnectionReceiver::Uadp(s) => Ok(("UADP".to_string(), s.receive_msg()?)),
         }
     }
 }
-

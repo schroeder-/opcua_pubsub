@@ -40,12 +40,12 @@ fn generate_namespace(server: &Server) -> u16 {
     let v3_node = NodeId::new(ns, 3);
     let vars = vec![
         Variable::new(&v0_node, "Time", "Time", DateTime::null()),
-        Variable::new(&v1_node, "Int32Var", "Int32Var", 4444 as i32),
-        Variable::new(&v2_node, "Int64Var", "Int64Var", 12345 as i64),
+        Variable::new(&v1_node, "Int32Var", "Int32Var", 4444_i32),
+        Variable::new(&v2_node, "Int64Var", "Int64Var", 12345_i64),
         Variable::new(&v3_node, "BoolToggle", "BoolToggle", false),
     ];
     let _ = address_space.add_variables(vars, &folder_id);
-    return ns;
+    ns
 }
 
 // Generates the subscriber
@@ -87,9 +87,8 @@ fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnecti
             .name("ToogleBool".into())
             .insert(&mut dsr),
     ];
-    for j in 0..4 {
+    for (j, x) in fields.iter().enumerate() {
         let i = if j == 0 { 4 } else { j };
-        let x = &fields[j];
         // Finally target server variables as destination for the values
         DataSetTargetBuilder::new_from_guid(x.clone())
             .target_node_id(&NodeId::new(ns, i as u32))

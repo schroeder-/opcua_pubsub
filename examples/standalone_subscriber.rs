@@ -6,15 +6,14 @@ use opcua_pubsub::prelude::*;
 /// In this example the subscriber gets a notify can when a Subscribed Dataset changed
 /// and can use this information
 
-
 // Generates the subscriber
 fn generate_pubsub(ns: u16) -> Result<PubSubConnection, StatusCode> {
-    let url = "opc.udp://224.0.0.22:4840"; 
+    let url = "opc.udp://224.0.0.22:4840";
     // Create a pubsub connection
     let mut pubsub = PubSubConnectionBuilder::new()
-            .set_url(url.into())
-            .set_publisher_id(Variant::UInt16(2234))
-            .build(SimpleAddressSpace::new_arc_lock())?;
+        .set_url(url.into())
+        .set_publisher_id(Variant::UInt16(2234))
+        .build(SimpleAddressSpace::new_arc_lock())?;
     // create a reader group to handle incoming messages
     let mut rg = ReaderGroup::new("Reader Group 1".into());
     // build the dataset reader to receive values.
@@ -44,9 +43,8 @@ fn generate_pubsub(ns: u16) -> Result<PubSubConnection, StatusCode> {
             .name("ToogleBool".into())
             .insert(&mut dsr),
     ];
-    for j in 0..4 {
+    for (j, x) in fields.iter().enumerate() {
         let i = if j == 0 { 4 } else { j };
-        let x = &fields[j];
         // Finally target server variables as destination for the values
         DataSetTargetBuilder::new_from_guid(x.clone())
             .target_node_id(&NodeId::new(ns, i as u32))
@@ -57,12 +55,11 @@ fn generate_pubsub(ns: u16) -> Result<PubSubConnection, StatusCode> {
     Ok(pubsub)
 }
 
-fn on_value(reader: &DataSetReader, dataset: Vec<UpdateTarget>){
+fn on_value(reader: &DataSetReader, dataset: &[UpdateTarget]) {
     println!("#### Got Dataset from reader: {}", reader.name());
-    for UpdateTarget(_, dv, meta) in dataset{
+    for UpdateTarget(_, dv, meta) in dataset {
         println!("#### Variable: {} Value: {:?}", meta.name(), dv);
     }
-    
 }
 
 fn main() -> Result<(), StatusCode> {

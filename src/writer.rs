@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 use crate::message::{UadpDataSetMessage, UadpGroupHeader, UadpMessageType, UadpNetworkMessage};
+use crate::network::TransportSettings;
 use crate::pubdataset::{generate_version_time, DataSetInfo, Promoted, PublishedDataSet};
 use crate::{
     DataSetFieldContentFlags, UadpDataSetMessageContentFlags, UadpNetworkMessageContentFlags,
@@ -11,8 +12,10 @@ use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
 use opcua_types::DateTime;
 use opcua_types::Duration;
-use opcua_types::Guid;
-use opcua_types::{ConfigurationVersionDataType, DataValue, Variant};
+use opcua_types::{BrokerTransportQualityOfService, Guid};
+use opcua_types::{
+    BrokerWriterGroupTransportDataType, ConfigurationVersionDataType, DataValue, Variant,
+};
 
 pub struct DataSetWriterBuilder {
     name: UAString,
@@ -21,6 +24,7 @@ pub struct DataSetWriterBuilder {
     message_content_mask: UadpDataSetMessageContentFlags,
     key_frame_count: u32,
     dataset_name: UAString,
+    transport_settings: TransportSettings,
 }
 
 impl DataSetWriterBuilder {
@@ -34,6 +38,36 @@ impl DataSetWriterBuilder {
                 | UadpDataSetMessageContentFlags::MINORVERSION
                 | UadpDataSetMessageContentFlags::TIMESTAMP,
             dataset_name: pds.name.clone(),
+            transport_settings: TransportSettings::None,
+        }
+    }
+
+    /// For broker based protocols like mqtt and amqp configuration like topic name are needed
+    pub fn new_for_broker(
+        pds: &PublishedDataSet,
+        meta_publish_interval: f64,
+        meta_topic: &UAString,
+        meta_qos: &BrokerTransportQualityOfService,
+    ) -> Self {
+        DataSetWriterBuilder {
+            name: "DataSetWriter".into(),
+            dataset_writer_id: 12345,
+            field_content_mask: DataSetFieldContentFlags::NONE,
+            key_frame_count: 10,
+            message_content_mask: UadpDataSetMessageContentFlags::MAJORVERSION
+                | UadpDataSetMessageContentFlags::MINORVERSION
+                | UadpDataSetMessageContentFlags::TIMESTAMP,
+            dataset_name: pds.name.clone(),
+            transport_settings: TransportSettings::BrokerDataSetWrite({
+                opcua_types::BrokerDataSetWriterTransportDataType {
+                    queue_name: UAString::null(),
+                    authentication_profile_uri: UAString::null(),
+                    requested_delivery_guarantee: *meta_qos,
+                    resource_uri: UAString::null(),
+                    meta_data_queue_name: meta_topic.clone(),
+                    meta_data_update_time: meta_publish_interval,
+                }
+            }),
         }
     }
 
@@ -76,6 +110,7 @@ impl DataSetWriterBuilder {
             },
             sequence_no: 0,
             dataset_name: self.dataset_name.clone(),
+            transport_settings: self.transport_settings.clone(),
         }
     }
 }
@@ -90,9 +125,15 @@ pub struct DataSetWriter {
     delta_frame_counter: u32,
     config_version: ConfigurationVersionDataType,
     sequence_no: u16,
+    transport_settings: TransportSettings,
 }
 
 impl DataSetWriter {
+    /// Get Transport Settings
+    pub fn transport_settings(&self) -> &TransportSettings {
+        &self.transport_settings
+    }
+
     pub fn generate_header(&self, msg: &mut UadpDataSetMessage) {
         msg.header.valid = true;
         if self
@@ -302,15 +343,21 @@ pub struct WriterGroup {
     writer: Vec<DataSetWriter>,
     group_version: u32,
     last_action: DateTime,
+    transport_settings: TransportSettings,
 }
 
 impl WriterGroup {
-    // Check if action is required
+    /// Check if action is required
     pub fn tick(&mut self) -> bool {
         //@TODO check keepalive
         // Convert publishing_interval from Milliseconds + fraction to 100 nano Seconds
         (self.last_action.ticks() + (self.publishing_interval * 1000.0) as i64)
             < DateTime::now().ticks()
+    }
+
+    /// Get Transport Settings
+    pub fn transport_settings(&self) -> &TransportSettings {
+        &self.transport_settings
     }
 
     /// Calculate next time the writer has to write data
@@ -446,6 +493,7 @@ pub struct WriterGroupBuilder {
     publish_interval: Duration,
     keep_alive_time: f64,
     message_settings: UadpNetworkMessageContentFlags,
+    transport_settings: TransportSettings,
 }
 
 impl WriterGroupBuilder {
@@ -459,6 +507,28 @@ impl WriterGroupBuilder {
                 | UadpNetworkMessageContentFlags::PUBLISHERID
                 | UadpNetworkMessageContentFlags::WRITERGROUPID
                 | UadpNetworkMessageContentFlags::GROUPHEADER,
+            transport_settings: TransportSettings::None,
+        }
+    }
+
+    pub fn new_for_broker(topic: &UAString, qos: &BrokerTransportQualityOfService) -> Self {
+        WriterGroupBuilder {
+            name: "WriterGroup".into(),
+            group_id: 12345,
+            publish_interval: 1000.0,
+            keep_alive_time: 10000.0,
+            message_settings: UadpNetworkMessageContentFlags::PAYLOADHEADER
+                | UadpNetworkMessageContentFlags::PUBLISHERID
+                | UadpNetworkMessageContentFlags::WRITERGROUPID
+                | UadpNetworkMessageContentFlags::GROUPHEADER,
+            transport_settings: TransportSettings::BrokerWrite({
+                BrokerWriterGroupTransportDataType {
+                    queue_name: topic.clone(),
+                    authentication_profile_uri: UAString::null(),
+                    requested_delivery_guarantee: *qos,
+                    resource_uri: UAString::null(),
+                }
+            }),
         }
     }
 
@@ -499,6 +569,7 @@ impl WriterGroupBuilder {
             sequence_no: 0,
             group_version: generate_version_time(),
             last_action: DateTime::null(),
+            transport_settings: self.transport_settings.clone(),
         }
     }
 }

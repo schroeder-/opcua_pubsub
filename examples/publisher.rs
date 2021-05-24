@@ -33,8 +33,8 @@ fn generate_namespace(server: &Server) -> u16 {
     let v2_node = NodeId::new(ns, 2);
     let v3_node = NodeId::new(ns, 3);
     let mut vars = vec![
-        Variable::new(&v1_node, "Int32Var", "Int32Var", 4444 as i32),
-        Variable::new(&v2_node, "Int64Var", "Int64Var", 12345 as i64),
+        Variable::new(&v1_node, "Int32Var", "Int32Var", 4444_i32),
+        Variable::new(&v2_node, "Int64Var", "Int64Var", 12345_i64),
         Variable::new(&v3_node, "BoolToggle", "BoolToggle", false),
     ];
     vars.iter_mut().for_each(|v| {
@@ -42,12 +42,12 @@ fn generate_namespace(server: &Server) -> u16 {
         v.set_user_access_level(UserAccessLevel::CURRENT_WRITE | UserAccessLevel::CURRENT_READ);
     });
     let _ = address_space.add_variables(vars, &folder_id);
-    return ns;
+    ns
 }
 
 // Generates the Publisher
 fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnection>>, StatusCode> {
-    let url = "opc.udp://224.0.0.22:4840"; 
+    let url = "opc.udp://224.0.0.22:4840";
     // Create a pubsub connection
     let pubsub = Arc::new(RwLock::new(
         PubSubConnectionBuilder::new()

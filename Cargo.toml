@@ -19,7 +19,7 @@ paho-mqtt = {version = "0.9", optional = true}
 [features]
 server-integration = ["opcua-server"]
 mqtt = ["paho-mqtt"]
-default = ["server-integration"]
+default = ["server-integration", "mqtt"]
 
 [dev-dependencies]
 opcua-console-logging = "0.8.0"

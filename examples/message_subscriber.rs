@@ -87,7 +87,7 @@ fn main() -> Result<(), StatusCode> {
     let receiver = pubsub.create_receiver()?;
     loop {
         match receiver.receive_msg() {
-            Ok(msg) => got_message(msg),
+            Ok((_, msg)) => got_message(msg),
             Err(e) => return Err(e),
         };
     }
