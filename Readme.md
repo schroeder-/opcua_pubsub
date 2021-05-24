@@ -12,14 +12,22 @@ Warning this crate is in prototyping stage! Library interfaces will like change.
 
 # Features
 * [x] Pubsub Messages
-* [ ] Standalone Subscription
+* [x] Standalone Subscription
 * [x] Standalone Publisher
 * [x] integrated Subscription
 * [x] integrated Publisher
-* [ ] PubSub EventLoop
+* [x] PubSub EventLoop
 * [ ] Tokio support
-## UADP (Pubsub via Multicast UDP)
 
+## Protocols
+* [x] Udp wit uadp encoding 
+* [ ] Eth with uadp encoding
+* [x] MQTT with uadp encoding
+* [ ] MQTT with json encoding
+* [ ] AMQP with uadp encoding
+* [ ] AMQP with json encoding
+
+## UADP Messages
 * [x] UADP Data Messages
 * [x] UADP Delta Messages
 * [ ] UADP Events Messages
@@ -27,6 +35,9 @@ Warning this crate is in prototyping stage! Library interfaces will like change.
 * [ ] UADP Chunked Messages
 * [ ] UADP Discovery
 * [ ] UADP Security
+
+## Json Messages
+* wip
 
 ## Integration Publisher with opcua server
 
@@ -55,6 +66,12 @@ Warning this crate is in prototyping stage! Library interfaces will like change.
 ## General
 * [ ] Conform specs for alle points
 * [ ] Expand integration tests and add more tests
+
+# Configurable Features
+
+* "mqtt" - enables mqtt via [paho](https://github.com/eclipse/paho.mqtt.rust)
+* "server-integration" - enables integrates the opcua pubsub with an opcua server, it uses the opcua-server crate.  
+   
 # License
 
 The code is licenced under [MPL-2.0](https://opensource.org/licenses/MPL-2.0). Like all open source code, you use this code at your own risk.
