@@ -1,8 +1,8 @@
+use crate::address_space::PubSubDataSourceT;
 use crate::callback::OnPubSubReciveValues;
-use crate::connection::PubSubDataSourceT;
+use crate::dataset::{PubSubFieldMetaData, SubscribedDataSet, UpdateTarget};
 use crate::message::uadp::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
 use crate::network::ReaderTransportSettings;
-use crate::pubdataset::{PubSubFieldMetaData, SubscribedDataSet, UpdateTarget};
 use std::sync::{Arc, Mutex, RwLock};
 
 use log::{error, warn};

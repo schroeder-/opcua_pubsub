@@ -1,9 +1,9 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
+use crate::dataset::{generate_version_time, DataSetInfo, Promoted, PublishedDataSet};
 use crate::message::{UadpDataSetMessage, UadpGroupHeader, UadpMessageType, UadpNetworkMessage};
 use crate::network::TransportSettings;
-use crate::pubdataset::{generate_version_time, DataSetInfo, Promoted, PublishedDataSet};
 use crate::{
     DataSetFieldContentFlags, UadpDataSetMessageContentFlags, UadpNetworkMessageContentFlags,
 };

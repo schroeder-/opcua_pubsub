@@ -55,18 +55,16 @@ fn generate_pubsub(ns: u16) -> Result<PubSubConnection, StatusCode> {
     Ok(pubsub)
 }
 
-fn on_value(reader: &DataSetReader, dataset: &[UpdateTarget]) {
-    println!("#### Got Dataset from reader: {}", reader.name());
-    for UpdateTarget(_, dv, meta) in dataset {
-        println!("#### Variable: {} Value: {:?}", meta.name(), dv);
-    }
-}
-
 fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     // Generating a pubsubconnection
     let mut pubsub = generate_pubsub(0)?;
-    let cb = OnReceiveValueFn::new_boxed(on_value);
+    let cb = OnReceiveValueFn::new_boxed(|reader, dataset| {
+        println!("#### Got Dataset from reader: {}", reader.name());
+        for UpdateTarget(_, dv, meta) in dataset {
+            println!("#### Variable: {} Value: {:?}", meta.name(), dv);
+        }
+    });
     pubsub.set_datavalue_recv(Some(cb));
     // Spawn a pubsub connection
     pubsub.run();

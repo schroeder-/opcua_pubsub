@@ -2,124 +2,30 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 
+use crate::address_space::PubSubDataSourceT;
 use crate::callback::OnPubSubReciveValues;
+use crate::dataset::{DataSetInfo, Promoted, PublishedDataSet};
 use crate::message::UadpNetworkMessage;
 use crate::network::{
     ConnectionReceiver, Connections, MqttConnection, TransportSettings, UadpNetworkConnection,
-};
-use crate::pubdataset::{
-    DataSetInfo, DataSetTarget, Promoted, PubSubFieldMetaData, PublishedDataSet,
 };
 use crate::reader::ReaderGroup;
 use crate::writer::WriterGroup;
 use log::{error, warn};
 use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
-use opcua_types::{ConfigurationVersionDataType, DataValue, DecodingLimits, NodeId, Variant};
-use std::collections::HashMap;
+use opcua_types::{ConfigurationVersionDataType, DataValue, DecodingLimits, Variant};
 use std::io::Cursor;
 use std::sync::{Arc, Mutex, RwLock};
 use url::Url;
-#[derive(Debug)]
-pub struct DataSourceErr;
 
-pub trait PubSubDataSource {
-    fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, DataSourceErr>;
-    fn set_pubsub_value(
-        &mut self,
-        target: &DataSetTarget,
-        dv: DataValue,
-        meta: &PubSubFieldMetaData,
-    );
-}
-
-pub type PubSubDataSourceT = dyn PubSubDataSource + Sync + Send;
-
-pub struct SimpleAddressSpace {
-    node_map: HashMap<NodeId, DataValue>,
-}
-
-impl SimpleAddressSpace {
-    pub fn new() -> Self {
-        SimpleAddressSpace {
-            node_map: HashMap::new(),
-        }
-    }
-
-    pub fn set_value(&mut self, nid: &NodeId, dv: DataValue) {
-        self.node_map.insert(nid.clone(), dv);
-    }
-
-    pub fn remove_value(&mut self, nid: &NodeId) {
-        self.node_map.remove(nid);
-    }
-
-    pub fn get_value(&self, nid: &NodeId) -> Option<&DataValue> {
-        self.node_map.get(nid)
-    }
-
-    pub fn new_arc_lock() -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(SimpleAddressSpace::new()))
-    }
-}
-
-impl Default for SimpleAddressSpace {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PubSubDataSource for SimpleAddressSpace {
-    fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, DataSourceErr> {
-        match self.node_map.get(nid) {
-            Some(v) => Ok(v.clone()),
-            None => Err(DataSourceErr),
-        }
-    }
-
-    fn set_pubsub_value(
-        &mut self,
-        target: &DataSetTarget,
-        dv: DataValue,
-        _meta: &PubSubFieldMetaData,
-    ) {
-        let nid = &target.0.target_node_id;
-        match &target.update_dv(dv) {
-            Ok(res) => {
-                self.node_map.insert(nid.clone(), res.clone());
-            }
-            Err(err) => error!("Couldn't update variable {} -> {}", nid, err),
-        };
-    }
-}
-
-#[cfg(feature = "server-integration")]
-use opcua_server::address_space::AddressSpace;
-
-#[cfg(feature = "server-integration")]
-impl PubSubDataSource for AddressSpace {
-    fn get_pubsub_value(&self, nid: &NodeId) -> Result<DataValue, DataSourceErr> {
-        self.get_variable_value(nid).or(Err(DataSourceErr))
-    }
-
-    fn set_pubsub_value(
-        &mut self,
-        target: &DataSetTarget,
-        dv: DataValue,
-        meta: &PubSubFieldMetaData,
-    ) {
-        let nid = &target.0.target_node_id;
-        if let Some(v) = self.find_variable_mut(nid) {
-            if let Err(err) = target.update_variable(dv, v) {
-                error!("Couldn't update variable {} -> {}", nid, err);
-            }
-        } else {
-            error!("Node {} not found -> {}", nid, meta.name());
-        }
-    }
-}
+/// Id for a pubsubconnection
+#[derive(Debug, PartialEq, Clone)]
+pub struct PubSubConnectionId(pub u32);
 
 #[allow(dead_code)]
+/// Helps Building a Connection
+/// @TODO add an builder example
 pub struct PubSubConnectionBuilder {
     name: UAString,
     url: UAString,
@@ -156,6 +62,7 @@ pub struct PubSubConnection {
     network_message_no: u16,
     data_source: Arc<RwLock<PubSubDataSourceT>>,
     value_recv: Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
+    id: PubSubConnectionId,
 }
 
 pub struct PubSubReceiver {
@@ -253,6 +160,7 @@ impl PubSubConnection {
             network_message_no: 0,
             data_source,
             value_recv,
+            id: PubSubConnectionId(0),
         })
     }
     /// add datavalue recv callback when values change
@@ -308,6 +216,22 @@ impl PubSubConnection {
             }
         }
     }
+    /// Check if the connection is valid and can be used
+    pub fn is_valid(&self) -> Result<(), StatusCode> {
+        //@TODO check object
+        Ok(())
+    }
+
+    /// Get the id of the connection
+    pub fn id(&self) -> &PubSubConnectionId {
+        &self.id
+    }
+
+    // @Hack is this rly need or change the construction?
+    pub(crate) fn set_id(&mut self, id: PubSubConnectionId) {
+        self.id = id;
+    }
+
     /// Disable datasetreader
     pub fn disable(&self) {
         for r in self.reader.iter() {

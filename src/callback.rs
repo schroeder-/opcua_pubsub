@@ -1,11 +1,26 @@
-use crate::pubdataset::UpdateTarget;
+// OPC UA Pubsub implementation for Rust
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (C) 2021 Alexander Schrode
+use crate::dataset::UpdateTarget;
 use crate::reader::DataSetReader;
 use std::sync::Arc;
 use std::sync::Mutex;
+
+/// Trait to recive subscribed values from a DataSetReader
 pub trait OnPubSubReciveValues {
+    /// Recived values from a DataSetReader
     fn data_recived(&mut self, reader: &DataSetReader, dataset: &[UpdateTarget]);
 }
 
+/// Wrapper to wrap function and cloures to be consumed as OnPubReciveValues
+/// ```
+/// let cb = OnReceiveValueFn::new_boxed(|reader, dataset|{
+///    println!("#### Got Dataset from reader: {}", reader.name());
+///    for UpdateTarget(_, dv, meta) in dataset {
+///        println!("#### Variable: {} Value: {:?}", meta.name(), dv);
+///    }
+/// });
+/// ```
 pub struct OnReceiveValueFn<T>
 where
     T: Fn(&DataSetReader, &[UpdateTarget]) + Send,

@@ -1,18 +1,20 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
+pub mod address_space;
+pub mod app;
 pub mod callback;
 pub mod connection;
+pub mod dataset;
 pub mod message;
 mod network;
-pub mod pubdataset;
 pub mod reader;
 pub mod writer;
 pub mod prelude {
+    pub use crate::address_space::{PubSubDataSource, SimpleAddressSpace};
     pub use crate::callback::OnReceiveValueFn;
     pub use crate::connection::{PubSubConnection, PubSubConnectionBuilder};
-    pub use crate::connection::{PubSubDataSource, SimpleAddressSpace};
-    pub use crate::pubdataset::{
+    pub use crate::dataset::{
         DataSetFieldBuilder, DataSetTargetBuilder, PubSubFieldMetaDataBuilder, PublishedDataSet,
         UpdateTarget,
     };

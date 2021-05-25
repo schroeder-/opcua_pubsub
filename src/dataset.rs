@@ -1,8 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-use crate::connection::PubSubDataSource;
-use crate::connection::PubSubDataSourceT;
+use crate::address_space::{PubSubDataSource, PubSubDataSourceT};
 use crate::reader::DataSetReader;
 #[cfg(feature = "server-integration")]
 use opcua_server::prelude::*;
