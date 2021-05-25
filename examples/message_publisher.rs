@@ -13,7 +13,9 @@ fn main() -> Result<(), StatusCode> {
     let url = "opc.udp://239.0.0.1:4840";
     // create a dummy datasource not need in this configuration
     let data_source = SimpleAddressSpace::new_arc_lock();
-    let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), data_source, None)?;
+    let uadp_config = UadpConfig::new(url.into());
+    let pubsub =
+        PubSubConnection::new(uadp_config.into(), Variant::UInt16(1002), data_source, None)?;
     let strs = vec![
         "ALFA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL", "INDIA",
         "JULIETT", "KILO", "LIMA", "MIKE", "NOVEMBER", "OSCAR", "PAPA", "QUEBEC", "ROMEO",

@@ -18,7 +18,12 @@ fn uadp_message_test() -> Result<(), StatusCode> {
     let mut sended = Vec::new();
     let url = "opc.udp://239.0.0.1:4840";
     let data_source = SimpleAddressSpace::new_arc_lock();
-    let pubsub = PubSubConnection::new(url.to_string(), Variant::UInt16(1002), data_source, None)?;
+    let pubsub = PubSubConnection::new(
+        UadpConfig::new(url.into()).into(),
+        Variant::UInt16(1002),
+        data_source,
+        None,
+    )?;
     const CNT: usize = 100;
     let recv = pubsub.create_receiver()?;
     let handler = thread::spawn(move || -> Result<Vec<UadpNetworkMessage>, StatusCode> {

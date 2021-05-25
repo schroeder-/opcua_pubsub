@@ -9,6 +9,8 @@ use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 
+use super::configuration::UadpConfig;
+
 /// Uadp message configuration which is used to receive/send udp messages
 pub struct UadpNetworkConnection {
     send_socket: Socket,
@@ -37,11 +39,16 @@ impl UadpNetworkReceiver {
 }
 
 impl UadpNetworkConnection {
-    /// creates a new instance from ip:port string
-    pub fn new(url: &str) -> std::io::Result<Self> {
-        let addr = match SocketAddr::from_str(url) {
+    /// creates a new instance from ip:port string and network interface
+    pub fn new(cfg: &UadpConfig) -> std::io::Result<Self> {
+        // @TODO use network interface
+        let (hostname_port, _) = match cfg.get_config() {
+            Ok(c) => c,
+            Err(_) => return Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
+        };
+        let addr = match SocketAddr::from_str(&hostname_port) {
             Err(e) => {
-                error!("Uadp url: {} is not valid! {:}", url, e);
+                error!("Uadp url: {} is not valid! {:}", hostname_port, e);
                 return Err(std::io::Error::from(std::io::ErrorKind::NotFound));
             }
             Ok(a) => a,

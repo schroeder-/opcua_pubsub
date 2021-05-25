@@ -1,13 +1,13 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2020 Alexander Schrode
+pub mod configuration;
 pub(crate) mod mqtt;
 pub(crate) mod uadp;
 
 pub(crate) use self::mqtt::MqttConnection;
-pub(crate) use self::uadp::UadpNetworkConnection;
-
 use self::mqtt::MqttReceiver;
+pub(crate) use self::uadp::UadpNetworkConnection;
 use self::uadp::UadpNetworkReceiver;
 use log::error;
 use opcua_types::status_code::StatusCode;

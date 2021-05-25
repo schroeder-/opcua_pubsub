@@ -6,6 +6,7 @@ use crate::address_space::PubSubDataSourceT;
 use crate::callback::OnPubSubReciveValues;
 use crate::dataset::{DataSetInfo, Promoted, PublishedDataSet};
 use crate::message::UadpNetworkMessage;
+use crate::network::configuration::*;
 use crate::network::{
     ConnectionReceiver, Connections, MqttConnection, TransportSettings, UadpNetworkConnection,
 };
@@ -17,43 +18,24 @@ use opcua_types::string::UAString;
 use opcua_types::{ConfigurationVersionDataType, DataValue, DecodingLimits, Variant};
 use std::io::Cursor;
 use std::sync::{Arc, Mutex, RwLock};
-use url::Url;
-
 /// Id for a pubsubconnection
 #[derive(Debug, PartialEq, Clone)]
 pub struct PubSubConnectionId(pub u32);
 
-#[allow(dead_code)]
 /// Helps Building a Connection
 /// @TODO add an builder example
 pub struct PubSubConnectionBuilder {
     name: UAString,
-    url: UAString,
     enabled: bool,
     publisher_id: Variant,
     value_recv: Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
+    network_config: ConnectionConfig,
 }
 
-pub enum PubSubTransportProfil {
-    /// http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp
-    UdpUadp,
-    ///
-    Mqtt,
-    ///
-    Amqp,
-    /// "http://opcfoundation.org/UA-Profile/Transport/pubsub-eth-uadp" unsupported
-    EthUadp,
-}
-
-pub enum PubSubEncoding {
-    Json,
-    Uadp,
-}
-
+/// Implements the Connection.
 #[allow(dead_code)]
 pub struct PubSubConnection {
-    profile: PubSubTransportProfil,
-    url: String,
+    network_config: ConnectionConfig,
     publisher_id: Variant,
     connection: Connections,
     datasets: Vec<PublishedDataSet>,
@@ -98,37 +80,14 @@ impl PubSubReceiver {
 impl PubSubConnection {
     /// Creats new Pubsub Connection
     pub fn new(
-        url: String,
+        network_config: ConnectionConfig,
         publisher_id: Variant,
         data_source: Arc<RwLock<PubSubDataSourceT>>,
         value_recv: Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
     ) -> Result<Self, StatusCode> {
-        // from url choose which protocol to use
-        let (uri, profile) = match Url::parse(&url) {
-            Ok(uri) => match uri.scheme() {
-                "opc.udp" => {
-                    let u = format!(
-                        "{}:{}",
-                        uri.host_str().unwrap_or("localhost"),
-                        uri.port().unwrap_or(4840)
-                    );
-                    (u, PubSubTransportProfil::UdpUadp)
-                }
-                "mqtt" | "mqtts" => (url.clone(), PubSubTransportProfil::Mqtt),
-                "amqps" | "amqp" => (url.clone(), PubSubTransportProfil::Amqp),
-                _ => {
-                    error!("Unkown scheme uri: {} - {}", url, uri.scheme());
-                    return Err(StatusCode::BadInvalidArgument);
-                }
-            },
-            Err(err) => {
-                error!("Invalid uri: {} - {}", url, err);
-                return Err(StatusCode::BadInvalidArgument);
-            }
-        };
         // Check if transport profile is supported
-        let connection = match profile {
-            PubSubTransportProfil::UdpUadp => match UadpNetworkConnection::new(&uri) {
+        let connection = match &network_config {
+            ConnectionConfig::Uadp(cfg) => match UadpNetworkConnection::new(cfg) {
                 Ok(con) => Connections::Uadp(con),
                 Err(e) => {
                     error!("Creating UadpNetworkconnection: {:-?}", e);
@@ -136,8 +95,7 @@ impl PubSubConnection {
                 }
             },
             #[cfg(feature = "mqtt")]
-            PubSubTransportProfil::Mqtt => Connections::Mqtt(MqttConnection::new(&url)?),
-            _ => return Err(StatusCode::BadNotImplemented),
+            ConnectionConfig::Mqtt(cfg) => Connections::Mqtt(MqttConnection::new(cfg)?),
         };
         // Check if publisher_id is valid the specs only allow UIntegers and String as id!
         match publisher_id {
@@ -150,8 +108,7 @@ impl PubSubConnection {
         }
 
         Ok(PubSubConnection {
-            profile,
-            url,
+            network_config,
             publisher_id,
             connection,
             datasets: Vec::new(),
@@ -350,30 +307,40 @@ impl<'a> DataSetInfo for PubSubDataSetInfo<'a> {
 impl PubSubConnectionBuilder {
     pub fn new() -> Self {
         PubSubConnectionBuilder {
-            url: "".into(),
             name: "UADP Connection 1".into(),
             enabled: true,
             publisher_id: 12345_u16.into(),
             value_recv: None,
+            network_config: ConnectionConfig::Uadp(UadpConfig::new("224.0.0.22:4800".into())),
         }
     }
 
-    pub fn set_name(&mut self, name: UAString) -> &mut Self {
+    pub fn name(&mut self, name: UAString) -> &mut Self {
         self.name = name;
         self
     }
 
-    pub fn set_url(&mut self, url: UAString) -> &mut Self {
-        self.url = url;
+    pub fn network_config(&mut self, cfg: ConnectionConfig) -> &mut Self {
+        self.network_config = cfg;
         self
     }
 
-    pub fn set_enabled(&mut self, en: bool) -> &mut Self {
+    pub fn uadp(&mut self, cfg: UadpConfig) -> &mut Self {
+        self.network_config = ConnectionConfig::Uadp(cfg);
+        self
+    }
+
+    pub fn mqtt(&mut self, cfg: MqttConfig) -> &mut Self {
+        self.network_config = ConnectionConfig::Mqtt(cfg);
+        self
+    }
+
+    pub fn enabled(&mut self, en: bool) -> &mut Self {
         self.enabled = en;
         self
     }
 
-    pub fn set_publisher_id(&mut self, var: Variant) -> &mut Self {
+    pub fn publisher_id(&mut self, var: Variant) -> &mut Self {
         self.publisher_id = var;
         self
     }
@@ -387,7 +354,7 @@ impl PubSubConnectionBuilder {
         data_source: Arc<RwLock<PubSubDataSourceT>>,
     ) -> Result<PubSubConnection, StatusCode> {
         PubSubConnection::new(
-            self.url.to_string(),
+            self.network_config.clone(),
             self.publisher_id.clone(),
             data_source,
             self.value_recv.clone(),
@@ -398,24 +365,5 @@ impl PubSubConnectionBuilder {
 impl Default for PubSubConnectionBuilder {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_urn() {
-        let url = Url::parse("opc.udp://10.23.1.2:1234").unwrap();
-        println!("{:?}", url);
-        assert_eq!(url.scheme(), "opc.udp");
-        assert_eq!(url.host_str(), Some("10.23.1.2"));
-        assert_eq!(url.port(), Some(1234));
-        let url = Url::parse("amqps://abc:1234/xxx").unwrap();
-        assert_eq!(url.scheme(), "amqps");
-        let url = Url::parse("wss://abc:123/xxx").unwrap();
-        assert_eq!(url.scheme(), "wss");
-        let url = Url::parse("mqtts://abc:1234/hhas").unwrap();
-        assert_eq!(url.scheme(), "mqtts");
     }
 }

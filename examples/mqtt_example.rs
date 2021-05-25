@@ -23,8 +23,8 @@ fn generate_pubsub(
 
     // Create a pubsub connection
     let mut pubsub = PubSubConnectionBuilder::new()
-        .set_url(broker)
-        .set_publisher_id(Variant::UInt16(2234))
+        .mqtt(MqttConfig::new(broker))
+        .publisher_id(Variant::UInt16(2234))
         .build(addr.clone())?;
     // Create a Published Dataset with the fields to publish
     let dataset_name = "Dataset 1".into();

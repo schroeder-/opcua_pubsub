@@ -5,6 +5,7 @@ pub mod address_space;
 pub mod app;
 pub mod callback;
 pub mod connection;
+pub mod constants;
 pub mod dataset;
 pub mod message;
 mod network;
@@ -14,10 +15,12 @@ pub mod prelude {
     pub use crate::address_space::{PubSubDataSource, SimpleAddressSpace};
     pub use crate::callback::OnReceiveValueFn;
     pub use crate::connection::{PubSubConnection, PubSubConnectionBuilder};
+    pub use crate::constants::*;
     pub use crate::dataset::{
         DataSetFieldBuilder, DataSetTargetBuilder, PubSubFieldMetaDataBuilder, PublishedDataSet,
         UpdateTarget,
     };
+    pub use crate::network::configuration::*;
     pub use crate::reader::{DataSetReader, DataSetReaderBuilder, ReaderGroup};
     pub use crate::writer::{DataSetWriterBuilder, WriterGroupBuilder};
     pub use crate::{

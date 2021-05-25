@@ -21,8 +21,8 @@ fn generate_pubsub(
     // Create a pubsub connection
     let pubsub = Arc::new(RwLock::new(
         PubSubConnectionBuilder::new()
-            .set_url(url.into())
-            .set_publisher_id(Variant::UInt16(2234))
+            .uadp(UadpConfig::new(url.into()))
+            .publisher_id(Variant::UInt16(2234))
             .build(addr.clone())?,
     ));
     // Create a Published Dataset with the fields to publish

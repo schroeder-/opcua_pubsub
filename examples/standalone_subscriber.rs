@@ -11,8 +11,8 @@ fn generate_pubsub(ns: u16) -> Result<PubSubConnection, StatusCode> {
     let url = "opc.udp://224.0.0.22:4840";
     // Create a pubsub connection
     let mut pubsub = PubSubConnectionBuilder::new()
-        .set_url(url.into())
-        .set_publisher_id(Variant::UInt16(2234))
+        .uadp(UadpConfig::new(url.into()))
+        .publisher_id(Variant::UInt16(2234))
         .build(SimpleAddressSpace::new_arc_lock())?;
     // create a reader group to handle incoming messages
     let mut rg = ReaderGroup::new("Reader Group 1".into());

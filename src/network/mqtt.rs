@@ -1,6 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2020 Alexander Schrode
+use crate::network::configuration::MqttConfig;
 use crate::network::{ReaderTransportSettings, TransportSettings};
 use opcua_types::status_code::StatusCode;
 use std::io;
@@ -23,7 +24,7 @@ mod dummy {
     }
 
     impl MqttConnection {
-        pub fn new(_url: &str) -> Result<MqttConnection, StatusCode> {
+        pub fn new(_url: &MqttConfig) -> Result<MqttConnection, StatusCode> {
             Err(StatusCode::BadNotImplemented)
         }
         pub fn publish(&self, _b: &[u8], _cfg: &TransportSettings) -> io::Result<usize> {
@@ -85,7 +86,8 @@ mod paho {
     }
 
     impl MqttConnection {
-        pub fn new(url: &str) -> Result<MqttConnection, StatusCode> {
+        pub fn new(cfg: &MqttConfig) -> Result<MqttConnection, StatusCode> {
+            let url = cfg.url().to_string();
             // pharo doesn't support mqtt scheme so change to tcp:// and mqtt://
             let url = url.replace("mqtt://", "tcp://");
             let url = url.replace("mqtts://", "ssl://");
