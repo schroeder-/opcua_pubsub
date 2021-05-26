@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 
+use opcua_pubsub::app::PubSubApp;
 use opcua_pubsub::prelude::*;
 use rand::prelude::*;
 use std::sync::{Arc, RwLock};
@@ -16,15 +17,15 @@ use std::{thread, time};
 fn generate_pubsub(
     ns: u16,
     addr: &Arc<RwLock<SimpleAddressSpace>>,
-) -> Result<Arc<RwLock<PubSubConnection>>, StatusCode> {
+) -> Result<Arc<RwLock<PubSubApp>>, StatusCode> {
     let url = "opc.udp://224.0.0.22:4840";
+    // Create App
+    let mut pubsub = PubSubApp::new();
     // Create a pubsub connection
-    let pubsub = Arc::new(RwLock::new(
-        PubSubConnectionBuilder::new()
-            .uadp(UadpConfig::new(url.into()))
-            .publisher_id(Variant::UInt16(2234))
-            .build(addr.clone())?,
-    ));
+    let mut connection = PubSubConnectionBuilder::new()
+        .uadp(UadpConfig::new(url.into()))
+        .publisher_id(Variant::UInt16(2234))
+        .build(addr.clone())?;
     // Create a Published Dataset with the fields to publish
     let dataset_name = "Dataset 1".into();
     let mut dataset = PublishedDataSet::new(dataset_name);
@@ -64,12 +65,10 @@ fn generate_pubsub(
         .set_name("DataSetWriter1".into())
         .build();
     wg.add_dataset_writer(dsw);
-    {
-        let mut ps = pubsub.write().unwrap();
-        ps.add_writer_group(wg);
-        ps.add_dataset(dataset);
-    }
-    Ok(pubsub)
+    connection.add_writer_group(wg);
+    pubsub.add_dataset(dataset)?;
+    pubsub.add_connection(connection)?;
+    Ok(Arc::new(RwLock::new(pubsub)))
 }
 
 fn main() -> Result<(), StatusCode> {
@@ -79,7 +78,7 @@ fn main() -> Result<(), StatusCode> {
     // Generating a pubsubconnection
     let pubsub = generate_pubsub(0, &data_source)?;
     // Spawn a pubsub connection
-    PubSubConnection::run_thread(pubsub);
+    PubSubApp::run_thread(pubsub);
     // Simulate a working loop where data is produced
     let mut rng = rand::thread_rng();
     let mut i = 0;

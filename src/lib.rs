@@ -13,7 +13,7 @@ pub mod reader;
 pub mod writer;
 pub mod prelude {
     pub use crate::address_space::{PubSubDataSource, SimpleAddressSpace};
-    pub use crate::callback::OnReceiveValueFn;
+    pub use crate::callback::*;
     pub use crate::connection::{PubSubConnection, PubSubConnectionBuilder};
     pub use crate::constants::*;
     pub use crate::dataset::{

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 
+use opcua_pubsub::app::PubSubApp;
 use opcua_pubsub::prelude::*;
 use opcua_server::prelude::*;
 use std::env;
@@ -46,15 +47,14 @@ fn generate_namespace(server: &Server) -> u16 {
 }
 
 // Generates the Publisher
-fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnection>>, StatusCode> {
+fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubApp>>, StatusCode> {
     let url = "opc.udp://224.0.0.22:4840";
     // Create a pubsub connection
-    let pubsub = Arc::new(RwLock::new(
-        PubSubConnectionBuilder::new()
-            .uadp(UadpConfig::new(url.into()))
-            .publisher_id(Variant::UInt16(2234))
-            .build(server.address_space())?,
-    ));
+    let pubsub = Arc::new(RwLock::new(PubSubApp::new()));
+    let mut connection = PubSubConnectionBuilder::new()
+        .uadp(UadpConfig::new(url.into()))
+        .publisher_id(Variant::UInt16(2234))
+        .build(server.address_space())?;
     // Create a Published Dataset with the fields to publish
     let dataset_name = "Dataset 1".into();
     let mut dataset = PublishedDataSet::new(dataset_name);
@@ -94,10 +94,11 @@ fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubConnecti
         .set_name("DataSetWriter1".into())
         .build();
     wg.add_dataset_writer(dsw);
+    connection.add_writer_group(wg);
     {
         let mut ps = pubsub.write().unwrap();
-        ps.add_writer_group(wg);
-        ps.add_dataset(dataset);
+        ps.add_dataset(dataset)?;
+        ps.add_connection(connection)?;
     }
     Ok(pubsub)
 }
@@ -109,7 +110,7 @@ fn main() -> Result<(), StatusCode> {
     let ns = generate_namespace(&server);
     let pubsub = generate_pubsub(ns, &server)?;
     // Run pubsub
-    PubSubConnection::run_thread(pubsub);
+    PubSubApp::run_thread(pubsub);
     // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
     server.run();
     Ok(())

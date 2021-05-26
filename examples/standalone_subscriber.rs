@@ -2,15 +2,21 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 
-use opcua_pubsub::prelude::*;
+use opcua_pubsub::{app::PubSubApp, prelude::*};
+use std::sync::{Arc, Mutex};
 /// In this example the subscriber gets a notify can when a Subscribed Dataset changed
 /// and can use this information
 
 // Generates the subscriber
-fn generate_pubsub(ns: u16) -> Result<PubSubConnection, StatusCode> {
+fn generate_pubsub(
+    ns: u16,
+    cb: Arc<Mutex<dyn OnPubSubReciveValues + Send>>,
+) -> Result<PubSubApp, StatusCode> {
     let url = "opc.udp://224.0.0.22:4840";
+    // Create App
+    let mut pubsub = PubSubApp::new();
     // Create a pubsub connection
-    let mut pubsub = PubSubConnectionBuilder::new()
+    let mut connection = PubSubConnectionBuilder::new()
         .uadp(UadpConfig::new(url.into()))
         .publisher_id(Variant::UInt16(2234))
         .build(SimpleAddressSpace::new_arc_lock())?;
@@ -51,21 +57,23 @@ fn generate_pubsub(ns: u16) -> Result<PubSubConnection, StatusCode> {
             .insert(&mut dsr);
     }
     rg.add_dataset_reader(dsr);
-    pubsub.add_reader_group(rg);
+    connection.add_reader_group(rg);
+    connection.set_datavalue_recv(Some(cb));
+    pubsub.add_connection(connection)?;
+
     Ok(pubsub)
 }
 
 fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     // Generating a pubsubconnection
-    let mut pubsub = generate_pubsub(0)?;
     let cb = OnReceiveValueFn::new_boxed(|reader, dataset| {
         println!("#### Got Dataset from reader: {}", reader.name());
         for UpdateTarget(_, dv, meta) in dataset {
             println!("#### Variable: {} Value: {:?}", meta.name(), dv);
         }
     });
-    pubsub.set_datavalue_recv(Some(cb));
+    let pubsub = generate_pubsub(0, cb)?;
     // Spawn a pubsub connection
     pubsub.run();
     Ok(())

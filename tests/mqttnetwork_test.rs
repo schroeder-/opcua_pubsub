@@ -1,3 +1,4 @@
+use opcua_pubsub::app::PubSubApp;
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
@@ -12,15 +13,16 @@ use std::{thread, time};
 fn generate_pubsub(
     ns: u16,
     addr: &Arc<RwLock<SimpleAddressSpace>>,
-) -> Result<Arc<RwLock<PubSubConnection>>, StatusCode> {
+) -> Result<Arc<RwLock<PubSubApp>>, StatusCode> {
     let topic: UAString = "OPCUA_TEST/Data".into();
     let topic_meta: UAString = "OPCUA_TEST/Meta".into();
     const META_INTERVAL: f64 = 0.0;
     const QOS: BrokerTransportQualityOfService = BrokerTransportQualityOfService::BestEffort;
     let broker: UAString = "mqtt://localhost:1883".into();
-
+    // Create Application
+    let mut pubsub = PubSubApp::new();
     // Create a pubsub connection
-    let mut pubsub = PubSubConnectionBuilder::new()
+    let mut connection = PubSubConnectionBuilder::new()
         .mqtt(MqttConfig::new(broker))
         .publisher_id(Variant::UInt16(2234))
         .build(addr.clone())?;
@@ -63,8 +65,8 @@ fn generate_pubsub(
         .set_name("DataSetWriter1".into())
         .build();
     wg.add_dataset_writer(dsw);
-    pubsub.add_writer_group(wg);
-    pubsub.add_dataset(dataset);
+    connection.add_writer_group(wg);
+    pubsub.add_dataset(dataset)?;
 
     // create a reader group to handle incoming messages
     let mut rg = ReaderGroup::new("Reader Group 1".into());
@@ -103,7 +105,8 @@ fn generate_pubsub(
             .insert(&mut dsr);
     }
     rg.add_dataset_reader(dsr);
-    pubsub.add_reader_group(rg);
+    connection.add_reader_group(rg);
+    pubsub.add_connection(connection)?;
     Ok(Arc::new(RwLock::new(pubsub)))
 }
 
@@ -115,7 +118,7 @@ fn test_mqtt() -> Result<(), StatusCode> {
     // Generating a pubsubconnection
     let pubsub = generate_pubsub(0, &data_source)?;
     // Spawn a pubsub connection
-    PubSubConnection::run_thread(pubsub);
+    PubSubApp::run_thread(pubsub);
     // Simulate a working loop where data is produced
     let mut rng = rand::thread_rng();
 

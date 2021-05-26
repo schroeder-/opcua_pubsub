@@ -1,9 +1,10 @@
+use opcua_pubsub::app::PubSubApp;
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 use opcua_pubsub::prelude::*;
 use rand::prelude::*;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::{thread, time};
 
 /// Example uses Mqtt with Uadp encoding
@@ -14,15 +15,17 @@ use std::{thread, time};
 fn generate_pubsub(
     ns: u16,
     addr: &Arc<RwLock<SimpleAddressSpace>>,
-) -> Result<PubSubConnection, StatusCode> {
+    cb: Arc<Mutex<dyn OnPubSubReciveValues + Send>>,
+) -> Result<PubSubApp, StatusCode> {
     let topic: UAString = "OPCUA_TEST/Data".into();
     let topic_meta: UAString = "OPCUA_TEST/Meta".into();
     const META_INTERVAL: f64 = 0.0;
     const QOS: BrokerTransportQualityOfService = BrokerTransportQualityOfService::BestEffort;
     let broker: UAString = "mqtt://localhost:1883".into();
-
+    // Create Application Object
+    let mut pubsub = PubSubApp::new();
     // Create a pubsub connection
-    let mut pubsub = PubSubConnectionBuilder::new()
+    let mut connection = PubSubConnectionBuilder::new()
         .mqtt(MqttConfig::new(broker))
         .publisher_id(Variant::UInt16(2234))
         .build(addr.clone())?;
@@ -66,8 +69,8 @@ fn generate_pubsub(
         .set_name("DataSetWriter1".into())
         .build();
     wg.add_dataset_writer(dsw);
-    pubsub.add_writer_group(wg);
-    pubsub.add_dataset(dataset);
+    connection.add_writer_group(wg);
+    pubsub.add_dataset(dataset)?;
 
     // create a reader group to handle incoming messages
     let mut rg = ReaderGroup::new("Reader Group 1".into());
@@ -98,7 +101,10 @@ fn generate_pubsub(
         .insert(&mut dsr);
 
     rg.add_dataset_reader(dsr);
-    pubsub.add_reader_group(rg);
+    connection.add_reader_group(rg);
+    connection.set_datavalue_recv(Some(cb));
+    pubsub.add_connection(connection)?;
+
     Ok(pubsub)
 }
 
@@ -114,11 +120,11 @@ fn main() -> Result<(), StatusCode> {
     let data_source = SimpleAddressSpace::new_arc_lock();
     let nodes: Vec<NodeId> = (0..8).map(|i| NodeId::new(0, i as u32)).collect();
     // Generating a pubsubconnection
-    let mut pubsub = generate_pubsub(0, &data_source)?;
     let cb = OnReceiveValueFn::new_boxed(on_value);
-    pubsub.set_datavalue_recv(Some(cb));
+    let pubsub = generate_pubsub(0, &data_source, cb)?;
+
     // Spawn a pubsub connection
-    PubSubConnection::run_thread(Arc::new(RwLock::new(pubsub)));
+    PubSubApp::run_thread(Arc::new(RwLock::new(pubsub)));
     // Simulate a working loop where data is produced
     let mut rng = rand::thread_rng();
     let mut i = 0_usize;

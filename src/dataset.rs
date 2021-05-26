@@ -16,6 +16,10 @@ use opcua_types::{FieldTargetDataType, NodeId, OverrideValueHandling};
 use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 
+/// Id for a pubsubconnection
+#[derive(Debug, PartialEq, Clone)]
+pub struct PublishedDataSetId(pub u32);
+
 pub struct Promoted(pub bool);
 /// Trait to implement for data access
 pub trait DataSetInfo {
@@ -27,6 +31,7 @@ pub struct PublishedDataSet {
     pub name: UAString,
     config_version: ConfigurationVersionDataType,
     dataset_fields: Vec<DataSetField>,
+    dataset_id: PublishedDataSetId,
 }
 /// Configures one variable in a dataset
 #[allow(dead_code)]
@@ -232,14 +237,15 @@ impl PublishedDataSet {
                 major_version: generate_version_time(),
             },
             dataset_fields: Vec::new(),
+            dataset_id: PublishedDataSetId(0),
         }
     }
 
-    pub fn get_name(&self) -> UAString {
+    pub fn name(&self) -> UAString {
         self.name.clone()
     }
 
-    pub fn get_config_version(&self) -> ConfigurationVersionDataType {
+    pub fn config_version(&self) -> ConfigurationVersionDataType {
         self.config_version.clone()
     }
 
@@ -252,6 +258,14 @@ impl PublishedDataSet {
             .iter()
             .map(|d| d.get_data(addr))
             .collect()
+    }
+    pub fn id(&self) -> &PublishedDataSetId {
+        &self.dataset_id
+    }
+
+    // @Fixme change creation?
+    pub(crate) fn set_id(&mut self, id: PublishedDataSetId) {
+        self.dataset_id = id;
     }
 }
 

@@ -17,6 +17,7 @@ use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
 use opcua_types::{ConfigurationVersionDataType, DataValue, DecodingLimits, Variant};
 use std::io::Cursor;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 /// Id for a pubsubconnection
 #[derive(Debug, PartialEq, Clone)]
@@ -38,7 +39,6 @@ pub struct PubSubConnection {
     network_config: ConnectionConfig,
     publisher_id: Variant,
     connection: Connections,
-    datasets: Vec<PublishedDataSet>,
     writer: Vec<WriterGroup>,
     reader: Vec<ReaderGroup>,
     network_message_no: u16,
@@ -68,6 +68,20 @@ impl PubSubReceiver {
                 Ok((topic, msg)) => {
                     let ps = pubsub.write().unwrap();
                     ps.handle_message(&topic.into(), msg);
+                }
+                Err(err) => {
+                    warn!("UadpReciver: error reading message {}!", err);
+                }
+            }
+        }
+    }
+
+    pub fn recv_to_channel(&self, tx: Sender<ConnectionAction>, id: &PubSubConnectionId) {
+        loop {
+            match self.receive_msg() {
+                Ok((topic, msg)) => {
+                    tx.send(ConnectionAction::GotUadp(id.clone(), topic, msg))
+                        .unwrap();
                 }
                 Err(err) => {
                     warn!("UadpReciver: error reading message {}!", err);
@@ -111,7 +125,6 @@ impl PubSubConnection {
             network_config,
             publisher_id,
             connection,
-            datasets: Vec::new(),
             writer: Vec::new(),
             reader: Vec::new(),
             network_message_no: 0,
@@ -145,9 +158,6 @@ impl PubSubConnection {
                 Err(StatusCode::BadCommunicationError)
             }
         }
-    }
-    pub fn add_dataset(&mut self, dataset: PublishedDataSet) {
-        self.datasets.push(dataset);
     }
 
     pub fn add_writer_group(&mut self, group: WriterGroup) {
@@ -200,49 +210,13 @@ impl PubSubConnection {
         }
     }
 
-    /// runs pubs in a new thread
-    /// currently 2 threads are used
-    pub fn run_thread(
-        pubsub: Arc<RwLock<Self>>,
-    ) -> (std::thread::JoinHandle<()>, std::thread::JoinHandle<()>) {
-        {
-            let ps = pubsub.write().unwrap();
-            ps.enable();
-        }
-        let pubsub_reader = pubsub.clone();
-        let th1 = std::thread::spawn(move || {
-            let receiver = {
-                let ps = pubsub_reader.write().unwrap();
-                ps.create_receiver().unwrap()
-            };
-            receiver.run(pubsub_reader);
-        });
-        let th2 = std::thread::spawn(move || loop {
-            let delay = {
-                let mut ps = pubsub.write().unwrap();
-                ps.drive_writer()
-            };
-            std::thread::sleep(delay);
-        });
-        (th1, th2)
-    }
-
-    /// runs the pubsub forever
-    pub fn run(self) {
-        let s = Arc::new(RwLock::new(self));
-        let (th1, th2) = Self::run_thread(s.clone());
-        th1.join().unwrap();
-        th2.join().unwrap();
-        let s = s.write().unwrap();
-        s.disable();
-    }
     /// Runs all writer, that should run and returns the next call to pull
-    pub fn drive_writer(&mut self) -> std::time::Duration {
+    pub fn drive_writer(&mut self, datasets: &Vec<PublishedDataSet>) -> std::time::Duration {
         let mut msgs = Vec::new();
         let mut net_offset = 0;
         let inf = PubSubDataSetInfo {
             data_source: &self.data_source,
-            datasets: &self.datasets,
+            datasets: datasets,
         };
         for w in &mut self.writer {
             if w.tick() {
@@ -293,7 +267,7 @@ impl<'a> DataSetInfo for PubSubDataSetInfo<'a> {
     }
     fn get_config_version(&self, name: &UAString) -> ConfigurationVersionDataType {
         if let Some(ds) = self.datasets.iter().find(|x| &x.name == name) {
-            ds.get_config_version()
+            ds.config_version()
         } else {
             warn!("DataSet {} not found", name);
             ConfigurationVersionDataType {
@@ -366,4 +340,9 @@ impl Default for PubSubConnectionBuilder {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub enum ConnectionAction {
+    GotUadp(PubSubConnectionId, String, UadpNetworkMessage),
+    DoLoop(PubSubConnectionId),
 }
