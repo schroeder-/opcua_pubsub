@@ -14,13 +14,14 @@ pub trait OnPubSubReciveValues {
 
 /// Wrapper to wrap function and cloures to be consumed as OnPubReciveValues
 /// ```
+/// use opcua_pubsub::prelude::*;
 /// let cb = OnReceiveValueFn::new_boxed(|reader, dataset|{
 ///    println!("#### Got Dataset from reader: {}", reader.name());
 ///    for UpdateTarget(_, dv, meta) in dataset {
 ///        println!("#### Variable: {} Value: {:?}", meta.name(), dv);
 ///    }
 /// });
-/// ```
+/// ``` 
 pub struct OnReceiveValueFn<T>
 where
     T: Fn(&DataSetReader, &[UpdateTarget]) + Send,
@@ -32,12 +33,13 @@ impl<T> OnReceiveValueFn<T>
 where
     T: Fn(&DataSetReader, &[UpdateTarget]) + Send,
 {
+    /// wraps function or closure
     pub fn new(func: T) -> Self {
         OnReceiveValueFn {
             recv: Box::new(Mutex::new(func)),
         }
     }
-
+    /// wraps function or closure boxed
     pub fn new_boxed(func: T) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self::new(func)))
     }

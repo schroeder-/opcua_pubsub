@@ -5,17 +5,27 @@
 use crate::address_space::PubSubDataSourceT;
 use crate::callback::OnPubSubReciveValues;
 use crate::dataset::{DataSetInfo, Promoted, PublishedDataSet};
+use crate::message::InformationType;
+use crate::message::ResponseType;
+use crate::message::UadpDataSetMetaDataResp;
+use crate::message::UadpDataSetWriterResp;
+use crate::message::UadpDiscoveryResponse;
 use crate::message::UadpNetworkMessage;
+use crate::message::UadpPublisherEndpointsResp;
 use crate::network::configuration::*;
 use crate::network::{
     ConnectionReceiver, Connections, MqttConnection, TransportSettings, UadpNetworkConnection,
 };
 use crate::reader::ReaderGroup;
+use crate::writer::DataSetWriter;
 use crate::writer::WriterGroup;
 use log::{error, warn};
 use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
-use opcua_types::{ConfigurationVersionDataType, DataValue, DecodingLimits, Variant};
+use opcua_types::DataSetMetaDataType;
+use opcua_types::DecodingOptions;
+use opcua_types::EndpointDescription;
+use opcua_types::{ConfigurationVersionDataType, DataValue, Variant};
 use std::io::Cursor;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
@@ -45,6 +55,7 @@ pub struct PubSubConnection {
     data_source: Arc<RwLock<PubSubDataSourceT>>,
     value_recv: Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
     id: PubSubConnectionId,
+    discovery_network_messag_no: u16,
 }
 
 pub struct PubSubReceiver {
@@ -56,7 +67,7 @@ impl PubSubReceiver {
     pub fn receive_msg(&self) -> Result<(String, UadpNetworkMessage), StatusCode> {
         let (topic, data) = self.recv.receive_msg()?;
         let mut stream = Cursor::new(&data);
-        let decoding_options = DecodingLimits::default();
+        let decoding_options = DecodingOptions::default();
 
         let msg = UadpNetworkMessage::decode(&mut stream, &decoding_options)?;
         Ok((topic, msg))
@@ -128,6 +139,7 @@ impl PubSubConnection {
             writer: Vec::new(),
             reader: Vec::new(),
             network_message_no: 0,
+            discovery_network_messag_no: 0,
             data_source,
             value_recv,
             id: PubSubConnectionId(0),
@@ -246,6 +258,128 @@ impl PubSubConnection {
         }
         let ret = std::time::Duration::from_millis(500);
         self.writer.iter().fold(ret, |a, w| a.min(w.next_tick()))
+    }
+
+    /// Sends all endpoints via pubsub only supported via UADP over ethernet or udp
+    pub fn send_discovery_endpoint(&mut self, endps: Option<Vec<EndpointDescription>>) {
+        let mut msg = UadpNetworkMessage::new();
+        msg.header.publisher_id = Some(self.publisher_id.clone());
+        let status = if endps.is_some() {
+            StatusCode::Good
+        } else {
+            StatusCode::BadNotImplemented
+        };
+        let response = UadpPublisherEndpointsResp::new(endps.unwrap_or_default(), status);
+        msg.response = Some(UadpDiscoveryResponse::new(
+            InformationType::PublisherEndpoints,
+            self.discovery_network_messag_no,
+            ResponseType::PublisherEndpoits(response),
+        ));
+        self.discovery_network_messag_no = self.discovery_network_messag_no.wrapping_add(1);
+        let mut c = Vec::new();
+        match msg.encode(&mut c) {
+            Ok(_) => {
+                if let Err(err) = self.connection.send(&c, &TransportSettings::None) {
+                    error!("Uadp error sending discovery message - {:?}", err);
+                }
+            }
+            Err(err) => {
+                error!(
+                    "Uadp error decoding message DiscoveryRespons get endpoints - {}",
+                    err
+                );
+            }
+        }
+    }
+    /// Sends Meta Data for a dataset if ds_writer is empty send status code bad
+    /// for example datasetwriter id doesn't exist
+    pub fn send_metadata(
+        &mut self,
+        ds_writer_id: u16,
+        ds_writer: Option<&DataSetWriter>,
+        dss: &Vec<PublishedDataSet>,
+    ) {
+        let mut msg = UadpNetworkMessage::new();
+        msg.header.publisher_id = Some(self.publisher_id.clone());
+        let mut status = if ds_writer.is_some() {
+            StatusCode::Good
+        } else {
+            StatusCode::BadNotImplemented
+        };
+        let meta_data = DataSetMetaDataType {
+            namespaces: None,
+            structure_data_types: None,
+            enum_data_types: None,
+            simple_data_types: None,
+            name: UAString::null(),
+            description: "".into(),
+            fields: None,
+            data_set_class_id: opcua_types::Guid::null(),
+            configuration_version: ConfigurationVersionDataType {
+                major_version: 0,
+                minor_version: 0,
+            },
+        };
+        let (meta_data, transport) = if let Some(dsw) = ds_writer {
+            let ds_name = &dsw.dataset_name;
+            if let Some(ds) = dss.iter().find(|d| &d.name == ds_name) {
+                (ds.generate_meta_data(), dsw.transport_settings())
+            } else {
+                status = StatusCode::BadNoData;
+                (meta_data, &TransportSettings::None)
+            }
+        } else {
+            (meta_data, &TransportSettings::None)
+        };
+        let response = UadpDataSetMetaDataResp::new(ds_writer_id, meta_data, status);
+        msg.response = Some(UadpDiscoveryResponse::new(
+            InformationType::DataSetMetaData,
+            self.discovery_network_messag_no,
+            ResponseType::DataSetMetaData(response),
+        ));
+        self.discovery_network_messag_no = self.discovery_network_messag_no.wrapping_add(1);
+        let mut c = Vec::new();
+        match msg.encode(&mut c) {
+            Ok(_) => {
+                if let Err(err) = self.connection.send(&c, transport) {
+                    error!("Uadp error sending discovery message - {:?}", err);
+                }
+            }
+            Err(err) => {
+                error!(
+                    "Uadp error decoding message DiscoveryRespons get endpoints - {}",
+                    err
+                );
+            }
+        }
+    }
+    /// Sends WriterGroup Data
+    pub fn send_dataset_writer_cfg(&mut self, writer_g: &WriterGroup) {
+        let mut msg = UadpNetworkMessage::new();
+        msg.header.publisher_id = Some(self.publisher_id.clone());
+        let (cfg, writer) = writer_g.generate_info();
+        let status = vec![StatusCode::Good; writer.len()];
+        let response = UadpDataSetWriterResp::new(writer, cfg, status);
+        msg.response = Some(UadpDiscoveryResponse::new(
+            InformationType::DataSetWriter,
+            self.discovery_network_messag_no,
+            ResponseType::DataSetWriter(response),
+        ));
+        self.discovery_network_messag_no = self.discovery_network_messag_no.wrapping_add(1);
+        let mut c = Vec::new();
+        match msg.encode(&mut c) {
+            Ok(_) => {
+                if let Err(err) = self.connection.send(&c, writer_g.transport_settings()) {
+                    error!("Uadp error sending discovery message - {:?}", err);
+                }
+            }
+            Err(err) => {
+                error!(
+                    "Uadp error decoding message DiscoveryRespons get endpoints - {}",
+                    err
+                );
+            }
+        }
     }
 }
 

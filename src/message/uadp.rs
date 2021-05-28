@@ -3,10 +3,15 @@
 // Copyright (C) 2021 Alexander Schrode
 
 use log::{error, trace, warn};
+use opcua_types::read_array;
 use opcua_types::status_code::StatusCode;
+use opcua_types::write_array;
+use opcua_types::DataSetMetaDataType;
 use opcua_types::EncodingResult;
+use opcua_types::EndpointDescription;
+use opcua_types::WriterGroupDataType;
 use opcua_types::{
-    guid::Guid, string::UAString, BinaryEncoder, DataValue, DateTime, DecodingLimits, Variant,
+    guid::Guid, string::UAString, BinaryEncoder, DataValue, DateTime, DecodingOptions, Variant,
 };
 use opcua_types::{process_decode_io_result, read_u16, read_u32, read_u64, read_u8};
 use opcua_types::{process_encode_io_result, write_u16, write_u32, write_u8};
@@ -128,6 +133,251 @@ pub enum UadpMessageType {
     KeepAlive,
 }
 
+/// Type of information to be send
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum InformationType {
+    PublisherEndpoints = 1,
+    DataSetMetaData = 2,
+    DataSetWriter = 3,
+}
+/// Response with the Endpoint of the publisher
+#[derive(PartialEq, Debug)]
+pub struct UadpPublisherEndpointsResp {
+    endpoints: Vec<EndpointDescription>,
+    status: StatusCode,
+}
+
+impl UadpPublisherEndpointsResp {
+    pub fn new(endpoints: Vec<EndpointDescription>, status: StatusCode) -> Self {
+        Self { endpoints, status }
+    }
+
+    pub fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
+        let mut sz = write_array(stream, &Some(self.endpoints.clone()))?;
+        sz += self.status.encode(stream)?;
+        Ok(sz)
+    }
+
+    pub fn decode<S: Read>(
+        stream: &mut S,
+        decoding_opts: &DecodingOptions,
+    ) -> EncodingResult<Self> {
+        let endpoints: Vec<EndpointDescription> =
+            read_array(stream, decoding_opts)?.unwrap_or_default();
+        let status = StatusCode::decode(stream, decoding_opts)?;
+        Ok(Self { endpoints, status })
+    }
+}
+
+/// Response with the MetaData of an Datasetwriter
+#[derive(PartialEq, Debug)]
+pub struct UadpDataSetMetaDataResp {
+    dataset_writer_id: u16,
+    meta_data: DataSetMetaDataType,
+    status: StatusCode,
+}
+
+impl UadpDataSetMetaDataResp {
+    pub fn new(dataset_writer_id: u16, meta_data: DataSetMetaDataType, status: StatusCode) -> Self {
+        Self {
+            dataset_writer_id,
+            meta_data,
+            status,
+        }
+    }
+
+    pub fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
+        let mut sz = write_u16(stream, self.dataset_writer_id)?;
+        sz += self.meta_data.encode(stream)?;
+        sz += self.status.encode(stream)?;
+        Ok(sz)
+    }
+
+    pub fn decode<S: Read>(
+        stream: &mut S,
+        decoding_opts: &DecodingOptions,
+    ) -> EncodingResult<Self> {
+        let dataset_writer_id = read_u16(stream)?;
+        let meta_data = DataSetMetaDataType::decode(stream, decoding_opts)?;
+        let status = StatusCode::decode(stream, decoding_opts)?;
+        Ok(Self {
+            dataset_writer_id,
+            meta_data,
+            status,
+        })
+    }
+}
+
+/// Response with the DataSetWriters of a Writer Group
+#[derive(PartialEq, Debug)]
+pub struct UadpDataSetWriterResp {
+    dataset_writer_ids: Vec<u16>,
+    dataset_writer_config: WriterGroupDataType,
+    status: Vec<StatusCode>,
+}
+
+impl UadpDataSetWriterResp {
+    pub fn new(
+        dataset_writer_ids: Vec<u16>,
+        dataset_writer_config: WriterGroupDataType,
+        status: Vec<StatusCode>,
+    ) -> Self {
+        Self {
+            dataset_writer_ids,
+            dataset_writer_config,
+            status,
+        }
+    }
+
+    pub fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
+        let mut sz = write_array(stream, &Some(self.dataset_writer_ids.clone()))?;
+        sz += self.dataset_writer_config.encode(stream)?;
+        sz += write_array(stream, &Some(self.status.clone()))?;
+        Ok(sz)
+    }
+
+    pub fn decode<S: Read>(
+        stream: &mut S,
+        decoding_opts: &DecodingOptions,
+    ) -> EncodingResult<Self> {
+        let dataset_writer_ids: Vec<u16> = read_array(stream, decoding_opts)?.unwrap_or_default();
+        let dataset_writer_config = WriterGroupDataType::decode(stream, decoding_opts)?;
+        let status: Vec<StatusCode> = read_array(stream, decoding_opts)?.unwrap_or_default();
+        Ok(Self {
+            dataset_writer_ids,
+            dataset_writer_config,
+            status,
+        })
+    }
+}
+
+/// Response Information
+#[derive(PartialEq, Debug)]
+pub enum ResponseType {
+    PublisherEndpoits(UadpPublisherEndpointsResp),
+    DataSetMetaData(UadpDataSetMetaDataResp),
+    DataSetWriter(UadpDataSetWriterResp),
+}
+
+/// Struct to request meta infos
+#[derive(PartialEq, Debug)]
+pub struct UadpDiscoveryRequest {
+    /// Which type of discovery message
+    information_type: InformationType,
+    /// Dataset ids can be null
+    dataset_writer_ids: Vec<u16>,
+}
+/// Struct to send meta infos
+#[derive(PartialEq, Debug)]
+pub struct UadpDiscoveryResponse {
+    /// Which type of discovery message
+    information_type: InformationType,
+    /// Sequence number for responses, should be incremented for each discovery response from the connection
+    sequence_number: u16,
+    /// the specific response
+    response: ResponseType,
+}
+
+impl UadpDiscoveryResponse {
+    pub fn new(
+        information_type: InformationType,
+        sequence_number: u16,
+        response: ResponseType,
+    ) -> Self {
+        Self {
+            information_type,
+            sequence_number,
+            response,
+        }
+    }
+
+    pub fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
+        let mut sz = write_u8(stream, self.information_type as u8)?;
+        sz += write_u16(stream, self.sequence_number)?;
+        sz += match &self.response {
+            ResponseType::PublisherEndpoits(d) => d.encode(stream)?,
+            ResponseType::DataSetMetaData(d) => d.encode(stream)?,
+            ResponseType::DataSetWriter(d) => d.encode(stream)?,
+        };
+        Ok(sz)
+    }
+
+    pub fn decode<S: Read>(
+        stream: &mut S,
+        decoding_opts: &DecodingOptions,
+    ) -> EncodingResult<Self> {
+        let information_type = match read_u8(stream)? {
+            1 => InformationType::PublisherEndpoints,
+            2 => InformationType::DataSetMetaData,
+            3 => InformationType::DataSetWriter,
+            x => {
+                warn!("Discovery InformationType {} not supported", x);
+                return Err(StatusCode::BadRequestTypeInvalid);
+            }
+        };
+        let sequence_number = read_u16(stream)?;
+        let response = match information_type {
+            InformationType::PublisherEndpoints => ResponseType::PublisherEndpoits(
+                UadpPublisherEndpointsResp::decode(stream, decoding_opts)?,
+            ),
+            InformationType::DataSetMetaData => ResponseType::DataSetMetaData(
+                UadpDataSetMetaDataResp::decode(stream, decoding_opts)?,
+            ),
+            InformationType::DataSetWriter => {
+                ResponseType::DataSetWriter(UadpDataSetWriterResp::decode(stream, decoding_opts)?)
+            }
+        };
+        Ok(Self {
+            information_type,
+            sequence_number,
+            response,
+        })
+    }
+}
+
+impl UadpDiscoveryRequest {
+    pub fn new(information_type: InformationType, dataset_writer_ids: Vec<u16>) -> Self {
+        Self {
+            information_type,
+            dataset_writer_ids,
+        }
+    }
+
+    pub fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
+        // 1 => Publisher information request message
+        let mut sz = write_u8(stream, 1)?;
+        sz += write_u8(stream, self.information_type as u8)?;
+        sz += write_array(stream, &Some(self.dataset_writer_ids.clone()))?;
+        Ok(sz)
+    }
+
+    pub fn decode<S: Read>(
+        stream: &mut S,
+        decoding_options: &DecodingOptions,
+    ) -> EncodingResult<Self> {
+        let req_type = read_u8(stream)?;
+        if req_type != 1 {
+            warn!("Discovery RequestType {} not supported", req_type);
+            return Err(StatusCode::BadRequestTypeInvalid);
+        }
+        let information_type = match read_u8(stream)? {
+            1 => InformationType::PublisherEndpoints,
+            2 => InformationType::DataSetMetaData,
+            3 => InformationType::DataSetWriter,
+            x => {
+                warn!("Discovery InformationType {} not supported", x);
+                return Err(StatusCode::BadRequestTypeInvalid);
+            }
+        };
+        let dataset_writer_ids: Vec<u16> =
+            read_array(stream, decoding_options)?.unwrap_or_default();
+        Ok(Self {
+            information_type,
+            dataset_writer_ids,
+        })
+    }
+}
+
 #[derive(PartialEq, Debug)]
 pub struct UadpDataSetMessage {
     pub header: UadpDataSetMessageHeader,
@@ -135,6 +385,22 @@ pub struct UadpDataSetMessage {
 }
 
 impl UadpHeader {
+    /// Check if there are discovery messages and set header flags, error when there is a mix of discovery response and dataframes
+    fn check_for_recovery(msg: &UadpNetworkMessage) -> EncodingResult<u32> {
+        let resp = msg.response.is_some();
+        let req = msg.request.is_some();
+        if !resp && !req {
+            Ok(0)
+        } else if !resp && req && msg.dataset.is_empty() {
+            Ok(MessageHeaderFlags::DISCOVERYREQUEST)
+        } else if resp && !req && msg.dataset.is_empty() {
+            Ok(MessageHeaderFlags::DISCOVERYRESPONSE)
+        } else {
+            error!("Can't mix discovery with dataframes or send discovery respond and request in one message");
+            Err(StatusCode::BadInvalidState)
+        }
+    }
+
     fn encode<S: Write>(&self, stream: &mut S, msg: &UadpNetworkMessage) -> EncodingResult<usize> {
         let mut f: u32 = 0x01; // Uadp Version 1
         if self.publisher_id.is_some() {
@@ -166,6 +432,7 @@ impl UadpHeader {
         if !msg.dataset_payload.is_empty() {
             f |= MessageHeaderFlags::PAYLOAD_HEADER_EN;
         }
+        f |= Self::check_for_recovery(msg)?;
         if f > 0xFF {
             f |= MessageHeaderFlags::EXTENDED_FLAGS_1;
         }
@@ -201,7 +468,7 @@ impl UadpHeader {
 
     fn decode<S: Read>(
         c: &mut S,
-        limits: &DecodingLimits,
+        limits: &DecodingOptions,
     ) -> EncodingResult<(UadpHeader, MessageHeaderFlags)> {
         let h1 = read_u8(c)?;
         let bitmaskv: u8 = 1 << 0 | 1 << 1 | 1 << 2 | 1 << 3;
@@ -298,7 +565,7 @@ impl UadpGroupHeader {
         Ok(sz)
     }
 
-    fn decode<S: Read>(c: &mut S, _limits: &DecodingLimits) -> EncodingResult<UadpGroupHeader> {
+    fn decode<S: Read>(c: &mut S, _limits: &DecodingOptions) -> EncodingResult<UadpGroupHeader> {
         let flags = read_u8(c)?;
         let writer_group_id = if flags & MessageGroupHeaderFlags::WRITER_GROUP_ID_EN != 0 {
             Some(read_u16(c)?)
@@ -403,7 +670,7 @@ impl UadpDataSetMessageHeader {
 
     fn decode<S: Read>(
         c: &mut S,
-        decoding_options: &DecodingLimits,
+        decoding_options: &DecodingOptions,
     ) -> EncodingResult<(UadpDataSetMessageHeader, MessageDataSetFlags)> {
         let mut flags = read_u8(c)? as u16;
         if flags & MessageDataSetFlags::FLAGS2 != 0 {
@@ -516,7 +783,7 @@ impl UadpMessageType {
 
     fn decode<S: Read>(
         c: &mut S,
-        decoding_options: &DecodingLimits,
+        decoding_options: &DecodingOptions,
         flags: MessageDataSetFlags,
         pay_head: &UadpDataSetPayload,
     ) -> EncodingResult<Self> {
@@ -623,7 +890,7 @@ impl UadpDataSetMessage {
 
     fn decode<S: Read>(
         c: &mut S,
-        decoding_options: &DecodingLimits,
+        decoding_options: &DecodingOptions,
         pay_head: &UadpDataSetPayload,
     ) -> EncodingResult<UadpDataSetMessage> {
         let (header, flags) = UadpDataSetMessageHeader::decode(c, decoding_options)?;
@@ -641,6 +908,8 @@ pub struct UadpNetworkMessage {
     pub picoseconds: Option<u16>,
     pub promoted_fields: Vec<Variant>,
     pub dataset: Vec<UadpDataSetMessage>,
+    pub request: Option<UadpDiscoveryRequest>,
+    pub response: Option<UadpDiscoveryResponse>,
 }
 
 impl UadpNetworkMessage {
@@ -664,6 +933,8 @@ impl UadpNetworkMessage {
             picoseconds,
             promoted_fields,
             dataset,
+            response: None,
+            request: None,
         }
     }
 
@@ -690,17 +961,23 @@ impl UadpNetworkMessage {
                 sz += v.encode(stream)?;
             }
         }
-        // Don't write payload len if only one dataset is contained via payload header
-        if self.dataset_payload.len() > 1 {
-            sz += write_u16(stream, self.dataset.len() as u16)?;
-        }
-        for v in self.dataset.iter() {
-            sz += v.encode(stream)?;
+        if let Some(req) = &self.request {
+            sz += req.encode(stream)?;
+        } else if let Some(res) = &self.response {
+            sz += res.encode(stream)?;
+        } else {
+            // Don't write payload len if only one dataset is contained via payload header
+            if self.dataset_payload.len() > 1 {
+                sz += write_u16(stream, self.dataset.len() as u16)?;
+            }
+            for v in self.dataset.iter() {
+                sz += v.encode(stream)?;
+            }
         }
         Ok(sz)
     }
 
-    pub fn decode<S: Read>(c: &mut S, decoding_options: &DecodingLimits) -> EncodingResult<Self> {
+    pub fn decode<S: Read>(c: &mut S, decoding_options: &DecodingOptions) -> EncodingResult<Self> {
         let (header, flags) = UadpHeader::decode(c, decoding_options)?;
         let group_header = if flags.contains(MessageHeaderFlags::GROUP_HEADER_EN) {
             Some(UadpGroupHeader::decode(c, decoding_options)?)
@@ -737,27 +1014,37 @@ impl UadpNetworkMessage {
         } else {
             Vec::new()
         };
-        let dataset = {
-            let sz = if flags.contains(MessageHeaderFlags::PAYLOAD_HEADER_EN) {
-                match dataset_payload.len() {
-                    1 => 1_usize,
-                    _ => read_u16(c)? as usize,
+        let mut request = None;
+        let mut dataset = Vec::new();
+        let mut response = None;
+
+        if flags.contains(MessageHeaderFlags::DISCOVERYRESPONSE) {
+            response = Some(UadpDiscoveryResponse::decode(c, decoding_options)?);
+        } else if flags.contains(MessageHeaderFlags::DISCOVERYREQUEST) {
+            request = Some(UadpDiscoveryRequest::decode(c, decoding_options)?);
+        } else {
+            dataset = {
+                let sz = if flags.contains(MessageHeaderFlags::PAYLOAD_HEADER_EN) {
+                    match dataset_payload.len() {
+                        1 => 1_usize,
+                        _ => read_u16(c)? as usize,
+                    }
+                } else {
+                    1_usize
+                };
+                let mut v = Vec::with_capacity(sz);
+                if sz > 0 {
+                    for _ in 0..sz {
+                        v.push(UadpDataSetMessage::decode(
+                            c,
+                            decoding_options,
+                            &dataset_payload,
+                        )?);
+                    }
                 }
-            } else {
-                1_usize
-            };
-            let mut v = Vec::with_capacity(sz);
-            if sz > 0 {
-                for _ in 0..sz {
-                    v.push(UadpDataSetMessage::decode(
-                        c,
-                        decoding_options,
-                        &dataset_payload,
-                    )?);
-                }
+                v
             }
-            v
-        };
+        }
         Ok(UadpNetworkMessage {
             header,
             group_header,
@@ -766,6 +1053,8 @@ impl UadpNetworkMessage {
             picoseconds,
             promoted_fields,
             dataset,
+            request,
+            response,
         })
     }
 }
@@ -778,6 +1067,8 @@ impl Default for UadpNetworkMessage {
 
 #[cfg(test)]
 mod tests {
+    use opcua_types::{ConfigurationVersionDataType, LocalizedText};
+
     use super::*;
     use std::io::Cursor;
     #[test]
@@ -793,7 +1084,7 @@ mod tests {
 
         msg.encode(&mut data)?;
         let mut c = Cursor::new(data);
-        let dec = match UadpNetworkMessage::decode(&mut c, &DecodingLimits::default()) {
+        let dec = match UadpNetworkMessage::decode(&mut c, &DecodingOptions::default()) {
             Ok(d) => d,
             Err(err) => panic!("decode failed {}", err),
         };
@@ -815,7 +1106,7 @@ mod tests {
         let mut data = Vec::new();
         msg.encode(&mut data)?;
         let mut c = Cursor::new(data);
-        let dec = match UadpNetworkMessage::decode(&mut c, &DecodingLimits::default()) {
+        let dec = match UadpNetworkMessage::decode(&mut c, &DecodingOptions::default()) {
             Ok(d) => d,
             Err(err) => panic!("decode failed {}", err),
         };
@@ -849,10 +1140,86 @@ mod tests {
         let mut data = Vec::new();
         msg.encode(&mut data)?;
         let mut c = Cursor::new(data);
-        let dec = UadpNetworkMessage::decode(&mut c, &DecodingLimits::default())?;
+        let dec = UadpNetworkMessage::decode(&mut c, &DecodingOptions::default())?;
         assert_eq!(dec, msg);
         assert_eq!(dec.timestamp, msg.timestamp);
         assert_eq!(dec.dataset, msg.dataset);
+        Ok(())
+    }
+    #[test]
+    /// Test som discovery messages encode/decodes
+    fn test_discovery_messages() -> Result<(), StatusCode> {
+        {
+            let mut msg = UadpNetworkMessage::new();
+            msg.header.publisher_id = Some(1234_u16.into());
+            msg.request = Some(UadpDiscoveryRequest::new(
+                InformationType::DataSetMetaData,
+                vec![12u16, 13u16],
+            ));
+            let mut data = Vec::new();
+            msg.encode(&mut data)?;
+            let mut c = Cursor::new(data);
+            let dec = UadpNetworkMessage::decode(&mut c, &DecodingOptions::default())?;
+            assert_eq!(dec, msg);
+        }
+        {
+            let mut msg = UadpNetworkMessage::new();
+            msg.header.publisher_id = Some(1234_u16.into());
+            msg.request = Some(UadpDiscoveryRequest::new(
+                InformationType::DataSetWriter,
+                vec![12u16],
+            ));
+            let mut data = Vec::new();
+            msg.encode(&mut data)?;
+            let mut c = Cursor::new(data);
+            let dec = UadpNetworkMessage::decode(&mut c, &DecodingOptions::default())?;
+            assert_eq!(dec, msg);
+        }
+        {
+            let mut msg = UadpNetworkMessage::new();
+            msg.header.publisher_id = Some(1234_u16.into());
+            msg.request = Some(UadpDiscoveryRequest::new(
+                InformationType::PublisherEndpoints,
+                Vec::new(),
+            ));
+            let mut data = Vec::new();
+            msg.encode(&mut data)?;
+            let mut c = Cursor::new(data);
+            let dec = UadpNetworkMessage::decode(&mut c, &DecodingOptions::default())?;
+            assert_eq!(dec, msg);
+        }
+        {
+            let mut msg = UadpNetworkMessage::new();
+            msg.header.publisher_id = Some(1234_u16.into());
+            let resp = ResponseType::DataSetMetaData(UadpDataSetMetaDataResp {
+                dataset_writer_id: 12u16,
+                meta_data: DataSetMetaDataType {
+                    namespaces: None,
+                    structure_data_types: None,
+                    enum_data_types: None,
+                    simple_data_types: None,
+                    name: "Abc".into(),
+                    description: LocalizedText::new("test", "en"),
+                    fields: None,
+                    data_set_class_id: Guid::new(),
+                    configuration_version: ConfigurationVersionDataType {
+                        major_version: 123,
+                        minor_version: 123,
+                    },
+                },
+                status: StatusCode::GoodDataIgnored,
+            });
+            msg.response = Some(UadpDiscoveryResponse::new(
+                InformationType::DataSetMetaData,
+                1,
+                resp,
+            ));
+            let mut data = Vec::new();
+            msg.encode(&mut data)?;
+            let mut c = Cursor::new(data);
+            let dec = UadpNetworkMessage::decode(&mut c, &DecodingOptions::default())?;
+            assert_eq!(dec, msg);
+        }
         Ok(())
     }
 }

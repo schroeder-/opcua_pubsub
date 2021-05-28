@@ -47,10 +47,10 @@ fn generate_pubsub(
         .set_alias("BoolToggle".into())
         .insert(&mut dataset);
     // Configure a Writer Group which is responsable for sending the messages
-    let msg_settings: UadpNetworkMessageContentFlags = UadpNetworkMessageContentFlags::PUBLISHERID
-        | UadpNetworkMessageContentFlags::GROUPHEADER
-        | UadpNetworkMessageContentFlags::WRITERGROUPID
-        | UadpNetworkMessageContentFlags::PAYLOADHEADER;
+    let msg_settings: UadpNetworkMessageContentMask = UadpNetworkMessageContentMask::PublisherId
+        | UadpNetworkMessageContentMask::GroupHeader
+        | UadpNetworkMessageContentMask::WriterGroupId
+        | UadpNetworkMessageContentMask::PayloadHeader;
     let mut wg = WriterGroupBuilder::new()
         .set_name("WriterGroup1".into())
         .set_group_id(100)
@@ -60,9 +60,9 @@ fn generate_pubsub(
     // Glue the writer group and published dataset together with a
     // dataset writer
     let dsw = DataSetWriterBuilder::new(&dataset)
-        .set_key_frame_count(1)
-        .set_dataset_writer_id(62541)
-        .set_name("DataSetWriter1".into())
+        .key_frame_count(1)
+        .dataset_writer_id(62541)
+        .name("DataSetWriter1".into())
         .build();
     wg.add_dataset_writer(dsw);
     connection.add_writer_group(wg);

@@ -5,23 +5,27 @@ use crate::dataset::{generate_version_time, DataSetInfo, Promoted, PublishedData
 use crate::message::{UadpDataSetMessage, UadpGroupHeader, UadpMessageType, UadpNetworkMessage};
 use crate::network::TransportSettings;
 use crate::{
-    DataSetFieldContentFlags, UadpDataSetMessageContentFlags, UadpNetworkMessageContentFlags,
+    DataSetFieldContentMask, UadpDataSetMessageContentMask, UadpNetworkMessageContentMask,
 };
 use chrono::Utc;
 use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
-use opcua_types::DateTime;
 use opcua_types::Duration;
 use opcua_types::{BrokerTransportQualityOfService, Guid};
 use opcua_types::{
     BrokerWriterGroupTransportDataType, ConfigurationVersionDataType, DataValue, Variant,
 };
+use opcua_types::{
+    DataSetWriterDataType, DateTime, ExtensionObject, LocalizedText, MessageSecurityMode,
+    WriterGroupDataType,
+};
 
 pub struct DataSetWriterBuilder {
     name: UAString,
+    desciption: LocalizedText,
     dataset_writer_id: u16,
-    field_content_mask: DataSetFieldContentFlags,
-    message_content_mask: UadpDataSetMessageContentFlags,
+    field_content_mask: DataSetFieldContentMask,
+    message_content_mask: UadpDataSetMessageContentMask,
     key_frame_count: u32,
     dataset_name: UAString,
     transport_settings: TransportSettings,
@@ -31,12 +35,13 @@ impl DataSetWriterBuilder {
     pub fn new(pds: &PublishedDataSet) -> Self {
         DataSetWriterBuilder {
             name: "DataSetWriter".into(),
+            desciption: "".into(),
             dataset_writer_id: 12345,
-            field_content_mask: DataSetFieldContentFlags::NONE,
+            field_content_mask: DataSetFieldContentMask::None,
             key_frame_count: 10,
-            message_content_mask: UadpDataSetMessageContentFlags::MAJORVERSION
-                | UadpDataSetMessageContentFlags::MINORVERSION
-                | UadpDataSetMessageContentFlags::TIMESTAMP,
+            message_content_mask: UadpDataSetMessageContentMask::MajorVersion
+                | UadpDataSetMessageContentMask::MinorVersion
+                | UadpDataSetMessageContentMask::Timestamp,
             dataset_name: pds.name.clone(),
             transport_settings: TransportSettings::None,
         }
@@ -50,13 +55,14 @@ impl DataSetWriterBuilder {
         meta_qos: &BrokerTransportQualityOfService,
     ) -> Self {
         DataSetWriterBuilder {
+            desciption: "".into(),
             name: "DataSetWriter".into(),
             dataset_writer_id: 12345,
-            field_content_mask: DataSetFieldContentFlags::NONE,
+            field_content_mask: DataSetFieldContentMask::None,
             key_frame_count: 10,
-            message_content_mask: UadpDataSetMessageContentFlags::MAJORVERSION
-                | UadpDataSetMessageContentFlags::MINORVERSION
-                | UadpDataSetMessageContentFlags::TIMESTAMP,
+            message_content_mask: UadpDataSetMessageContentMask::MajorVersion
+                | UadpDataSetMessageContentMask::MinorVersion
+                | UadpDataSetMessageContentMask::Timestamp,
             dataset_name: pds.name.clone(),
             transport_settings: TransportSettings::BrokerDataSetWrite({
                 opcua_types::BrokerDataSetWriterTransportDataType {
@@ -71,27 +77,32 @@ impl DataSetWriterBuilder {
         }
     }
 
-    pub fn set_name(&mut self, name: UAString) -> &mut Self {
+    pub fn desciption(&mut self, desc: LocalizedText) -> &mut Self {
+        self.desciption = desc;
+        self
+    }
+
+    pub fn name(&mut self, name: UAString) -> &mut Self {
         self.name = name;
         self
     }
 
-    pub fn set_dataset_writer_id(&mut self, id: u16) -> &mut Self {
+    pub fn dataset_writer_id(&mut self, id: u16) -> &mut Self {
         self.dataset_writer_id = id;
         self
     }
 
-    pub fn set_content_mask(&mut self, mask: DataSetFieldContentFlags) -> &mut Self {
+    pub fn content_mask(&mut self, mask: DataSetFieldContentMask) -> &mut Self {
         self.field_content_mask = mask;
         self
     }
 
-    pub fn set_message_setting(&mut self, mask: UadpDataSetMessageContentFlags) -> &mut Self {
+    pub fn message_setting(&mut self, mask: UadpDataSetMessageContentMask) -> &mut Self {
         self.message_content_mask = mask;
         self
     }
 
-    pub fn set_key_frame_count(&mut self, key_frame_count: u32) -> &mut Self {
+    pub fn key_frame_count(&mut self, key_frame_count: u32) -> &mut Self {
         self.key_frame_count = key_frame_count;
         self
     }
@@ -99,17 +110,18 @@ impl DataSetWriterBuilder {
     pub fn build(&self) -> DataSetWriter {
         DataSetWriter {
             name: self.name.clone(),
+            desciption: self.desciption.clone(),
             dataset_writer_id: self.dataset_writer_id,
+            dataset_name: self.dataset_name.clone(),
             field_content_mask: self.field_content_mask,
-            key_frame_count: self.key_frame_count,
             message_content_mask: self.message_content_mask,
+            key_frame_count: self.key_frame_count,
             delta_frame_counter: 0,
             config_version: ConfigurationVersionDataType {
                 major_version: 0,
                 minor_version: 0,
             },
             sequence_no: 0,
-            dataset_name: self.dataset_name.clone(),
             transport_settings: self.transport_settings.clone(),
         }
     }
@@ -117,10 +129,11 @@ impl DataSetWriterBuilder {
 
 pub struct DataSetWriter {
     pub name: UAString,
+    pub desciption: LocalizedText,
     pub dataset_writer_id: u16,
     pub dataset_name: UAString,
-    field_content_mask: DataSetFieldContentFlags,
-    message_content_mask: UadpDataSetMessageContentFlags,
+    field_content_mask: DataSetFieldContentMask,
+    message_content_mask: UadpDataSetMessageContentMask,
     key_frame_count: u32,
     delta_frame_counter: u32,
     config_version: ConfigurationVersionDataType,
@@ -134,36 +147,82 @@ impl DataSetWriter {
         &self.transport_settings
     }
 
+    pub fn generate_info(&self) -> DataSetWriterDataType {
+        let transport_settings = match &self.transport_settings {
+            TransportSettings::BrokerDataSetWrite(x) => ExtensionObject::from_encodable(
+                &opcua_types::ObjectTypeId::BrokerDataSetWriterTransportType,
+                &opcua_types::BrokerDataSetWriterTransportDataType {
+                    queue_name: x.queue_name.clone(),
+                    resource_uri: x.resource_uri.clone(),
+                    authentication_profile_uri: x.authentication_profile_uri.clone(),
+                    requested_delivery_guarantee: x.requested_delivery_guarantee,
+                    meta_data_queue_name: x.meta_data_queue_name.clone(),
+                    meta_data_update_time: x.meta_data_update_time,
+                },
+            ),
+            TransportSettings::BrokerWrite(_) => {
+                panic!("Didn't exect Broker Write Groupe settings here");
+            }
+            TransportSettings::None => {
+                // @TODO check if this ok because for datagram there are no transport settings for datasetwriter
+                ExtensionObject::null()
+            }
+        };
+
+        let message_settings = opcua_types::UadpDataSetWriterMessageDataType {
+            data_set_message_content_mask: self.message_content_mask,
+            configured_size: 0,
+            network_message_number: 0,
+            data_set_offset: 0,
+        };
+        let message_settings = ExtensionObject::from_encodable(
+            opcua_types::ObjectTypeId::UadpDataSetWriterMessageType,
+            &message_settings,
+        );
+
+        DataSetWriterDataType {
+            name: self.name.clone(),
+            enabled: true,
+            data_set_writer_id: self.dataset_writer_id,
+            data_set_field_content_mask: self.field_content_mask,
+            key_frame_count: self.key_frame_count,
+            data_set_name: self.dataset_name.clone(),
+            data_set_writer_properties: None,
+            transport_settings,
+            message_settings,
+        }
+    }
+
     pub fn generate_header(&self, msg: &mut UadpDataSetMessage) {
         msg.header.valid = true;
         if self
             .message_content_mask
-            .contains(UadpDataSetMessageContentFlags::MAJORVERSION)
+            .contains(UadpDataSetMessageContentMask::MajorVersion)
         {
             msg.header.cfg_major_version = Some(self.config_version.major_version);
         }
         if self
             .message_content_mask
-            .contains(UadpDataSetMessageContentFlags::MINORVERSION)
+            .contains(UadpDataSetMessageContentMask::MinorVersion)
         {
             msg.header.cfg_minor_version = Some(self.config_version.minor_version);
         }
         if self
             .message_content_mask
-            .contains(UadpDataSetMessageContentFlags::PICOSECONDS)
+            .contains(UadpDataSetMessageContentMask::PicoSeconds)
         {
             // Pico seconds are not supported
             msg.header.pico_seconds = Some(0);
         }
         if self
             .message_content_mask
-            .contains(UadpDataSetMessageContentFlags::SEQUENCENUMBER)
+            .contains(UadpDataSetMessageContentMask::SequenceNumber)
         {
             msg.header.sequence_no = Some(self.sequence_no);
         }
         if self
             .message_content_mask
-            .contains(UadpDataSetMessageContentFlags::STATUS)
+            .contains(UadpDataSetMessageContentMask::Status)
         {
             //@TODO what todo with the status code?
             // 0 represents StatusCode Good
@@ -171,7 +230,7 @@ impl DataSetWriter {
         }
         if self
             .message_content_mask
-            .contains(UadpDataSetMessageContentFlags::TIMESTAMP)
+            .contains(UadpDataSetMessageContentMask::Timestamp)
         {
             msg.header.time_stamp = Some(DateTime::now());
         }
@@ -226,7 +285,7 @@ impl DataSetWriter {
             // Generate a DeltaFrame with rawdata
             else if self
                 .field_content_mask
-                .contains(DataSetFieldContentFlags::RAWDATA)
+                .contains(DataSetFieldContentMask::RawData)
             {
                 None // @TODO Atm raw transport is not supported
             }
@@ -240,19 +299,19 @@ impl DataSetWriter {
                         if dt.ticks() > offset.ticks() {
                             if !self
                                 .field_content_mask
-                                .contains(DataSetFieldContentFlags::SOURCETIMESTAMP)
+                                .contains(DataSetFieldContentMask::SourceTimestamp)
                             {
                                 d.server_timestamp = None;
                             }
                             if !self
                                 .field_content_mask
-                                .contains(DataSetFieldContentFlags::SERVERTIMESTAMP)
+                                .contains(DataSetFieldContentMask::ServerTimestamp)
                             {
                                 d.source_timestamp = None;
                             }
                             if !self
                                 .field_content_mask
-                                .contains(DataSetFieldContentFlags::STATUSCODE)
+                                .contains(DataSetFieldContentMask::StatusCode)
                             {
                                 d.status = None;
                             }
@@ -284,7 +343,7 @@ impl DataSetWriter {
             // Generate Keyframe with raw value
             else if self
                 .field_content_mask
-                .contains(DataSetFieldContentFlags::RAWDATA)
+                .contains(DataSetFieldContentMask::RawData)
             {
                 None // @TODO Not supported at the moment
             }
@@ -294,19 +353,19 @@ impl DataSetWriter {
                 for (_, mut d) in ds {
                     if !self
                         .field_content_mask
-                        .contains(DataSetFieldContentFlags::SOURCETIMESTAMP)
+                        .contains(DataSetFieldContentMask::SourceTimestamp)
                     {
                         d.server_timestamp = None;
                     }
                     if !self
                         .field_content_mask
-                        .contains(DataSetFieldContentFlags::SERVERTIMESTAMP)
+                        .contains(DataSetFieldContentMask::ServerTimestamp)
                     {
                         d.source_timestamp = None;
                     }
                     if !self
                         .field_content_mask
-                        .contains(DataSetFieldContentFlags::STATUSCODE)
+                        .contains(DataSetFieldContentMask::StatusCode)
                     {
                         d.status = None;
                     }
@@ -338,12 +397,14 @@ pub struct WriterGroup {
     pub writer_group_id: u16,
     publishing_interval: Duration,
     keep_alive_time: f64,
-    message_settings: UadpNetworkMessageContentFlags,
+    message_settings: UadpNetworkMessageContentMask,
     sequence_no: u16,
     writer: Vec<DataSetWriter>,
     group_version: u32,
     last_action: DateTime,
     transport_settings: TransportSettings,
+    max_network_message_size: u32,
+    priorty: u8,
 }
 
 impl WriterGroup {
@@ -367,6 +428,68 @@ impl WriterGroup {
         std::time::Duration::from_micros(((next - DateTime::now().ticks()) / 10) as u64)
     }
 
+    /// Generates the info of the writer groupe
+    pub fn generate_info(&self) -> (WriterGroupDataType, Vec<u16>) {
+        let transport_settings = match &self.transport_settings {
+            TransportSettings::BrokerDataSetWrite(_) => {
+                panic!("Did expect Broker Data Set Write here");
+            }
+            TransportSettings::BrokerWrite(x) => ExtensionObject::from_encodable(
+                &opcua_types::ObjectTypeId::BrokerWriterGroupTransportType,
+                &opcua_types::BrokerWriterGroupTransportDataType {
+                    queue_name: x.queue_name.clone(),
+                    resource_uri: x.resource_uri.clone(),
+                    authentication_profile_uri: x.authentication_profile_uri.clone(),
+                    requested_delivery_guarantee: x.requested_delivery_guarantee,
+                },
+            ),
+            TransportSettings::None => {
+                ExtensionObject::from_encodable(
+                    opcua_types::ObjectTypeId::DatagramWriterGroupTransportType,
+                    &opcua_types::DatagramWriterGroupTransportDataType {
+                        /// Repeats not implemented
+                        message_repeat_count: 0,
+                        message_repeat_delay: 0.0,
+                    },
+                )
+            }
+        };
+
+        let message_settings = opcua_types::UadpWriterGroupMessageDataType {
+            group_version: self.group_version,
+            data_set_ordering: opcua_types::DataSetOrderingType::Undefined,
+            network_message_content_mask: self.message_settings,
+            sampling_offset: -1.0,
+            publishing_offset: None,
+        };
+        let message_settings = ExtensionObject::from_encodable(
+            opcua_types::ObjectTypeId::UadpWriterGroupMessageType,
+            &message_settings,
+        );
+
+        (
+            WriterGroupDataType {
+                name: self.name.clone(),
+                enabled: self.enabled,
+                security_mode: MessageSecurityMode::None,
+                security_group_id: "".into(),
+                security_key_services: None,
+                max_network_message_size: self.max_network_message_size,
+                group_properties: None,
+                writer_group_id: self.writer_group_id,
+                publishing_interval: self.publishing_interval,
+                keep_alive_time: self.keep_alive_time,
+                priority: self.priorty,
+                locale_ids: None,
+                header_layout_uri: "".into(),
+                transport_settings,
+                message_settings,
+                data_set_writers: Some(self.writer.iter().map(|w| w.generate_info()).collect()),
+            },
+            self.writer.iter().map(|w| w.dataset_writer_id).collect(),
+        )
+    }
+
     pub fn generate_message<T: DataSetInfo>(
         &mut self,
         network_no: u16,
@@ -377,23 +500,23 @@ impl WriterGroup {
         let mut message = UadpNetworkMessage::new();
         if self
             .message_settings
-            .contains(UadpNetworkMessageContentFlags::DATASETCLASSID)
+            .contains(UadpNetworkMessageContentMask::DataSetClassId)
         {
             message.header.dataset_class_id = Some(Guid::null());
         }
         if self
             .message_settings
-            .contains(UadpNetworkMessageContentFlags::PUBLISHERID)
+            .contains(UadpNetworkMessageContentMask::PublisherId)
         {
             message.header.publisher_id = Some(publisher_id.clone());
         }
         if self
             .message_settings
-            .contains(UadpNetworkMessageContentFlags::GROUPHEADER)
+            .contains(UadpNetworkMessageContentMask::GroupHeader)
         {
             let ver = if self
                 .message_settings
-                .contains(UadpNetworkMessageContentFlags::GROUPVERSION)
+                .contains(UadpNetworkMessageContentMask::GroupVersion)
             {
                 Some(self.group_version)
             } else {
@@ -401,7 +524,7 @@ impl WriterGroup {
             };
             let net_no = if self
                 .message_settings
-                .contains(UadpNetworkMessageContentFlags::NETWORKMESSAGENUMBER)
+                .contains(UadpNetworkMessageContentMask::NetworkMessageNumber)
             {
                 Some(network_no)
             } else {
@@ -409,7 +532,7 @@ impl WriterGroup {
             };
             let seq_no = if self
                 .message_settings
-                .contains(UadpNetworkMessageContentFlags::SEQUENCENUMBER)
+                .contains(UadpNetworkMessageContentMask::SequenceNumber)
             {
                 Some(self.sequence_no)
             } else {
@@ -417,7 +540,7 @@ impl WriterGroup {
             };
             let wg_id = if self
                 .message_settings
-                .contains(UadpNetworkMessageContentFlags::WRITERGROUPID)
+                .contains(UadpNetworkMessageContentMask::WriterGroupId)
             {
                 Some(self.writer_group_id)
             } else {
@@ -432,14 +555,14 @@ impl WriterGroup {
         }
         if self
             .message_settings
-            .contains(UadpNetworkMessageContentFlags::PICOSECONDS)
+            .contains(UadpNetworkMessageContentMask::PicoSeconds)
         {
             message.picoseconds = Some(0);
         }
 
         if self
             .message_settings
-            .contains(UadpNetworkMessageContentFlags::TIMESTAMP)
+            .contains(UadpNetworkMessageContentMask::Timestamp)
         {
             message.timestamp = Some(DateTime::now());
         }
@@ -450,7 +573,7 @@ impl WriterGroup {
             if sz == 1
                 && self
                     .message_settings
-                    .contains(UadpNetworkMessageContentFlags::PROMOTEDFIELDS)
+                    .contains(UadpNetworkMessageContentMask::PromotedFields)
             {
                 for (promoted, val) in vals.iter() {
                     if promoted.0 {
@@ -466,7 +589,7 @@ impl WriterGroup {
                 message.dataset.push(ds);
                 if self
                     .message_settings
-                    .contains(UadpNetworkMessageContentFlags::PAYLOADHEADER)
+                    .contains(UadpNetworkMessageContentMask::PayloadHeader)
                 {
                     message.dataset_payload.push(w.dataset_writer_id);
                 }
@@ -492,7 +615,7 @@ pub struct WriterGroupBuilder {
     group_id: u16,
     publish_interval: Duration,
     keep_alive_time: f64,
-    message_settings: UadpNetworkMessageContentFlags,
+    message_settings: UadpNetworkMessageContentMask,
     transport_settings: TransportSettings,
 }
 
@@ -503,10 +626,10 @@ impl WriterGroupBuilder {
             group_id: 12345,
             publish_interval: 1000.0,
             keep_alive_time: 10000.0,
-            message_settings: UadpNetworkMessageContentFlags::PAYLOADHEADER
-                | UadpNetworkMessageContentFlags::PUBLISHERID
-                | UadpNetworkMessageContentFlags::WRITERGROUPID
-                | UadpNetworkMessageContentFlags::GROUPHEADER,
+            message_settings: UadpNetworkMessageContentMask::PayloadHeader
+                | UadpNetworkMessageContentMask::PublisherId
+                | UadpNetworkMessageContentMask::WriterGroupId
+                | UadpNetworkMessageContentMask::GroupHeader,
             transport_settings: TransportSettings::None,
         }
     }
@@ -517,10 +640,10 @@ impl WriterGroupBuilder {
             group_id: 12345,
             publish_interval: 1000.0,
             keep_alive_time: 10000.0,
-            message_settings: UadpNetworkMessageContentFlags::PAYLOADHEADER
-                | UadpNetworkMessageContentFlags::PUBLISHERID
-                | UadpNetworkMessageContentFlags::WRITERGROUPID
-                | UadpNetworkMessageContentFlags::GROUPHEADER,
+            message_settings: UadpNetworkMessageContentMask::PayloadHeader
+                | UadpNetworkMessageContentMask::PublisherId
+                | UadpNetworkMessageContentMask::WriterGroupId
+                | UadpNetworkMessageContentMask::GroupHeader,
             transport_settings: TransportSettings::BrokerWrite({
                 BrokerWriterGroupTransportDataType {
                     queue_name: topic.clone(),
@@ -552,7 +675,7 @@ impl WriterGroupBuilder {
         self
     }
 
-    pub fn set_message_setting(&mut self, mask: UadpNetworkMessageContentFlags) -> &mut Self {
+    pub fn set_message_setting(&mut self, mask: UadpNetworkMessageContentMask) -> &mut Self {
         self.message_settings = mask;
         self
     }
@@ -570,6 +693,8 @@ impl WriterGroupBuilder {
             group_version: generate_version_time(),
             last_action: DateTime::null(),
             transport_settings: self.transport_settings.clone(),
+            max_network_message_size: 8192,
+            priorty: 126,
         }
     }
 }

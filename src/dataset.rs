@@ -32,6 +32,7 @@ pub struct PublishedDataSet {
     config_version: ConfigurationVersionDataType,
     dataset_fields: Vec<DataSetField>,
     dataset_id: PublishedDataSetId,
+    guid: Guid,
 }
 /// Configures one variable in a dataset
 #[allow(dead_code)]
@@ -238,6 +239,21 @@ impl PublishedDataSet {
             },
             dataset_fields: Vec::new(),
             dataset_id: PublishedDataSetId(0),
+            guid: Guid::new(),
+        }
+    }
+    pub fn generate_meta_data(&self) -> DataSetMetaDataType {
+        DataSetMetaDataType {
+            namespaces: None,
+            structure_data_types: None,
+            enum_data_types: None,
+            simple_data_types: None,
+            name: self.name.clone(),
+            description: "".into(), // @TODO add description
+            fields: None,           //self.dataset_fields.iter().map(|f| ),
+            // @TODO generate meta data
+            data_set_class_id: self.guid.clone(),
+            configuration_version: self.config_version.clone(),
         }
     }
 
