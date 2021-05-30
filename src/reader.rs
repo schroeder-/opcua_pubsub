@@ -228,9 +228,16 @@ impl DataSetReader {
         self.writer_group_id = cfg.writer_group_id;
         self.dataset_writer_id = cfg.data_set_writer_id;
         // ; //@TODO move out metadata
-        if let Ok(sds) = decode_extension::<TargetVariablesDataType>(&cfg.subscribed_data_set, ObjectId::TargetVariablesDataType_Encoding_DefaultBinary, &DecodingOptions::default()){
+        if let Ok(sds) = decode_extension::<TargetVariablesDataType>(
+            &cfg.subscribed_data_set,
+            ObjectId::TargetVariablesDataType_Encoding_DefaultBinary,
+            &DecodingOptions::default(),
+        ) {
             self.sub_data_set = SubscribedDataSet::new();
-            sds.target_variables.unwrap_or_default().iter().for_each(|f| self.sub_data_set.add_target(DataSetTarget(f.clone())));
+            sds.target_variables
+                .unwrap_or_default()
+                .iter()
+                .for_each(|f| self.sub_data_set.add_target(DataSetTarget(f.clone())));
         }
         self.transport_settings = if let Ok(s) =
             decode_extension::<BrokerDataSetReaderTransportDataType>(

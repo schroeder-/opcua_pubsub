@@ -158,14 +158,14 @@ impl DataSetWriter {
             &cfg.message_settings,
             opcua_types::ObjectId::UadpDataSetWriterMessageDataType_Encoding_DefaultBinary,
             &DecodingOptions::default(),
-        ){
+        ) {
             Ok(set) => set,
-            Err(_) => UadpDataSetWriterMessageDataType{
+            Err(_) => UadpDataSetWriterMessageDataType {
                 data_set_message_content_mask: UadpDataSetMessageContentMask::None,
                 configured_size: 0,
                 network_message_number: 0,
                 data_set_offset: 0,
-            }
+            },
         };
         let tr = {
             if let Ok(t) = decode_extension::<BrokerDataSetWriterTransportDataType>(

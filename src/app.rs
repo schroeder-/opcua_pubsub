@@ -1,7 +1,12 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-use crate::{connection::{ConnectionAction, PubSubConnection, PubSubConnectionId}, dataset::PublishedDataSetId, prelude::{PubSubDataSource, PublishedDataSet}, until::decode_extension};
+use crate::{
+    connection::{ConnectionAction, PubSubConnection, PubSubConnectionId},
+    dataset::PublishedDataSetId,
+    prelude::{PubSubDataSource, PublishedDataSet},
+    until::decode_extension,
+};
 use core::panic;
 use log::error;
 use opcua_types::{
@@ -188,7 +193,10 @@ impl PubSubApp {
     }
 
     ///  Loads configuration for pubsub from binary file
-    pub fn new_from_bin_file(path: &Path, ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>) -> Result<Self, StatusCode> {
+    pub fn new_from_bin_file(
+        path: &Path,
+        ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
+    ) -> Result<Self, StatusCode> {
         let buffer = match fs::read(path) {
             Ok(b) => b,
             Err(err) => {
@@ -199,14 +207,20 @@ impl PubSubApp {
         Self::new_from_binary(&mut buffer.as_slice(), ds)
     }
     /// Load from PubSubConfiguration DataType
-    fn new_from_cfg(cfg: PubSubConfigurationDataType, ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>) -> Result<Self, StatusCode> {
+    fn new_from_cfg(
+        cfg: PubSubConfigurationDataType,
+        ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
+    ) -> Result<Self, StatusCode> {
         let mut obj = Self::new();
         obj.update(cfg, ds)?;
         Ok(obj)
     }
 
     /// Loads configuration form binary data
-    pub fn new_from_binary<Stream: std::io::Read>(buf: &mut Stream, ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>) -> Result<Self, StatusCode> {
+    pub fn new_from_binary<Stream: std::io::Read>(
+        buf: &mut Stream,
+        ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
+    ) -> Result<Self, StatusCode> {
         // Read as extension object
         let dec_opts = DecodingOptions::default();
         let eobj = match ExtensionObject::decode(buf, &dec_opts) {
@@ -256,7 +270,11 @@ impl PubSubApp {
     }
 
     /// Update PubSubConfiguration
-    fn update(&mut self, cfg: PubSubConfigurationDataType, ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>) -> Result<(), StatusCode> {
+    fn update(
+        &mut self,
+        cfg: PubSubConfigurationDataType,
+        ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
+    ) -> Result<(), StatusCode> {
         if let Some(pds_cfgs) = cfg.published_data_sets {
             for pds in pds_cfgs {
                 if let Some(v) = self.datasets.iter_mut().find(|x| x.name() == pds.name) {

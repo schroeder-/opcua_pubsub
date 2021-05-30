@@ -1,15 +1,18 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
+
 use crate::constants::PubSubTransportProfil;
 use crate::until::decode_extension;
 use log::error;
 use opcua_types::status_code::StatusCode;
 use opcua_types::DecodingOptions;
+use opcua_types::KeyValuePair;
 use opcua_types::NetworkAddressUrlDataType;
 use opcua_types::ObjectId;
 use opcua_types::PubSubConnectionDataType;
 use opcua_types::UAString;
+use opcua_types::Variant;
 use url::Url;
 /// Configures a PubSubConnection with needed settings
 #[derive(Clone)]
@@ -30,11 +33,9 @@ impl ConnectionConfig {
                 net.url,
                 net.network_interface,
             ))),
-            PubSubTransportProfil::MqttUadp => {
-                // @TODO parse cfg
-                // cfg.connection_properties
-                Ok(ConnectionConfig::Mqtt(MqttConfig::new(net.url)))
-            }
+            PubSubTransportProfil::MqttUadp => Ok(ConnectionConfig::Mqtt(
+                MqttConfig::new_from_probs(net.url, &cfg.connection_properties),
+            )),
             PubSubTransportProfil::AmqpUadp
             | PubSubTransportProfil::MqttJson
             | PubSubTransportProfil::AmqpJson
@@ -61,11 +62,35 @@ pub struct UadpConfig {
     network_if: Option<UAString>,
     url: UAString,
 }
+
+/// Choose which mqtt version
+#[derive(Clone, PartialEq, Copy)]
+pub enum MqttVersion {
+    All = 0,
+    OnlyV3_1 = 3,
+    OnlyV3_1_1 = 4,
+    OnlyV5 = 5,
+}
+
+impl MqttVersion {
+    fn try_from_i32(value: i32) -> Option<MqttVersion> {
+        Some(match value {
+            0 => MqttVersion::All,
+            3 => MqttVersion::OnlyV3_1,
+            4 => MqttVersion::OnlyV3_1_1,
+            5 => MqttVersion::OnlyV5,
+            _ => return None,
+        })
+    }
+}
 #[derive(Clone)]
 /// Configures a Mqtt Connection
-/// @TODO support more configuration
 pub struct MqttConfig {
-    url: UAString,
+    pub(crate) url: UAString,
+    pub(crate) username: UAString,
+    pub(crate) password: UAString,
+    pub(crate) clean_session: bool,
+    pub(crate) version: MqttVersion,
 }
 
 impl UadpConfig {
@@ -134,14 +159,74 @@ impl MqttConfig {
     /// new UadpConfig
     /// url example: opc.udp://239.0.0.1:4840
     pub fn new(url: UAString) -> Self {
-        MqttConfig { url }
+        MqttConfig {
+            url,
+            username: UAString::null(),
+            password: UAString::null(),
+            clean_session: false,
+            version: MqttVersion::All,
+        }
     }
+
+    pub fn new_from_probs(url: UAString, cfg: &Option<Vec<KeyValuePair>>) -> Self {
+        let mut mq = Self::new(url);
+        if let Some(probs) = &cfg {
+            let get_val = |key: UAString| {
+                probs
+                    .iter()
+                    .find(|x| &x.key.name == &key)
+                    .map_or(&Variant::Empty, |f| &f.value)
+            };
+            if let Variant::String(ref u) = get_val("UserName".into()) {
+                mq.username(u.clone());
+            }
+            if let Variant::String(ref u) = get_val("Password".into()) {
+                mq.password(u.clone());
+            }
+            if let Variant::Boolean(u) = get_val("CleanSession".into()) {
+                if *u {
+                    mq.clean_session();
+                }
+            }
+            if let Variant::Int32(u) = get_val("ProtocolVersion".into()) {
+                if let Some(v) = MqttVersion::try_from_i32(*u) {
+                    mq.mqtt_version(v);
+                }
+            }
+        }
+        mq
+    }
+
     pub fn url(&self) -> &UAString {
         &self.url
     }
 
     pub fn profile(self) -> PubSubTransportProfil {
         PubSubTransportProfil::MqttUadp
+    }
+
+    /// Sets the username for the connection
+    pub fn username(&mut self, username: UAString) -> &mut Self {
+        self.username = username;
+        self
+    }
+
+    /// Sets the password for the connection
+    pub fn password(&mut self, password: UAString) -> &mut Self {
+        self.password = password;
+        self
+    }
+
+    /// Clears session if one exists, default the connection is keeped
+    pub fn clean_session(&mut self) -> &mut Self {
+        self.clean_session = true;
+        self
+    }
+
+    /// Setting the Version
+    pub fn mqtt_version(&mut self, version: MqttVersion) -> &mut Self {
+        self.version = version;
+        self
     }
 }
 

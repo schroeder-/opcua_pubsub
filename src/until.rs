@@ -3,11 +3,10 @@
 // Copyright (C) 2021 Alexander Schrode
 use opcua_types::status_code::StatusCode;
 use opcua_types::{BinaryEncoder, DecodingOptions, ExtensionObject, ObjectId};
-
 /// Decode Object from ExtensionObject helper function
 /// ```
 /// let ex = ExtensionObject::null();
-/// let set = decode_extension::<UadpWriterGroupMessageDataType>(ex, opcua_types::ObjectId::UadpWriterGroupMessageDataType_Encoding_DefaultBinary, &DecodingOptions::default())?;
+/// let set = decode_extension::<opcua_types::UadpWriterGroupMessageDataType>(ex, opcua_types::ObjectId::UadpWriterGroupMessageDataType_Encoding_DefaultBinary, &DecodingOptions::default())?;
 /// ```
 pub fn decode_extension<T: BinaryEncoder<T>>(
     eobj: &ExtensionObject,

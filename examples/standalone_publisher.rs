@@ -95,4 +95,3 @@ fn main() -> Result<(), StatusCode> {
         thread::sleep(time::Duration::from_millis(100));
     }
 }
-

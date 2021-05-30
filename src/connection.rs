@@ -38,6 +38,7 @@ pub struct PubSubConnectionId(pub u32);
 
 /// Helps Building a Connection
 /// @TODO add an builder example
+#[allow(dead_code)]
 pub struct PubSubConnectionBuilder {
     name: UAString,
     enabled: bool,
@@ -422,7 +423,10 @@ impl PubSubConnection {
         Ok(())
     }
 
-    pub fn from_cfg(cfg: &PubSubConnectionDataType, ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>) -> Result<Self, StatusCode> {
+    pub fn from_cfg(
+        cfg: &PubSubConnectionDataType,
+        ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
+    ) -> Result<Self, StatusCode> {
         // @TODO add data_source
         let data_source = ds.unwrap_or(SimpleAddressSpace::new_arc_lock());
         let net_cfg = ConnectionConfig::from_cfg(cfg)?;

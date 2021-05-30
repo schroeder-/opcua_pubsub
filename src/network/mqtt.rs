@@ -46,8 +46,11 @@ mod dummy {
 }
 #[cfg(feature = "mqtt")]
 mod paho {
+    use crate::network::configuration::MqttVersion;
+
     use super::*;
     use log::{error, info, warn};
+    use mqtt::ConnectOptionsBuilder;
     use opcua_types::BrokerTransportQualityOfService;
     use std::sync::mpsc;
     use std::sync::{Arc, RwLock};
@@ -87,20 +90,34 @@ mod paho {
 
     impl MqttConnection {
         pub fn new(cfg: &MqttConfig) -> Result<MqttConnection, StatusCode> {
-            let url = cfg.url().to_string();
+            let org_url = cfg.url().to_string();
             // pharo doesn't support mqtt scheme so change to tcp:// and mqtt://
-            let url = url.replace("mqtt://", "tcp://");
+            let url = org_url.replace("mqtt://", "tcp://");
             let url = url.replace("mqtts://", "ssl://");
-            let mut cli = match mqtt::Client::new(url.clone()) {
+            let mut opts = ConnectOptionsBuilder::new();
+            if cfg.clean_session {
+                opts.clean_session(true);
+            }
+            if !cfg.password.is_empty() {
+                opts.password(cfg.password.to_string());
+            }
+            if !cfg.username.is_empty() {
+                opts.user_name(cfg.username.to_string());
+            }
+            if cfg.version != MqttVersion::All {
+                opts.mqtt_version(cfg.version as u32);
+            }
+            let o = opts.finalize();
+            let mut cli = match mqtt::Client::new(url) {
                 Ok(cli) => cli,
                 Err(err) => {
-                    error!("crating client from url: {} - {}", url, err);
+                    error!("crating client from url: {} - {}", org_url, err);
                     return Err(StatusCode::BadCommunicationError);
                 }
             };
             cli.set_timeout(Duration::from_secs(5));
             // Connect and wait for it to complete or fail
-            match cli.connect(None) {
+            match cli.connect(o) {
                 Err(e) => {
                     error!("Unable to connect: {:?}", e);
                     return Err(StatusCode::BadCommunicationError);
