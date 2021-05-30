@@ -1,16 +1,15 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-use crate::{
-    connection::{ConnectionAction, PubSubConnection, PubSubConnectionId},
-    dataset::PublishedDataSetId,
-    prelude::PublishedDataSet,
-};
+use crate::{connection::{ConnectionAction, PubSubConnection, PubSubConnectionId}, dataset::PublishedDataSetId, prelude::{PubSubDataSource, PublishedDataSet}, until::decode_extension};
 use core::panic;
 use log::error;
-use opcua_types::status_code::StatusCode;
-use std::sync::mpsc;
+use opcua_types::{
+    status_code::StatusCode, BinaryEncoder, DecodingOptions, ExtensionObject, ObjectId,
+    PubSubConfigurationDataType, UABinaryFileDataType, Variant,
+};
 use std::sync::mpsc::{Receiver, Sender};
+use std::{fs, path::Path, sync::mpsc};
 use std::{
     sync::{Arc, RwLock},
     thread::JoinHandle,
@@ -165,7 +164,7 @@ impl PubSubApp {
                 Err(err) => panic!("error {}", err),
             }
         }));
-        return vec;
+        vec
     }
     pub fn drive_writer(&mut self, id: &PubSubConnectionId) -> std::time::Duration {
         let con = self.connections.iter_mut().find(|x| x.id() == id);
@@ -187,10 +186,118 @@ impl PubSubApp {
             con.disable();
         }
     }
+
+    ///  Loads configuration for pubsub from binary file
+    pub fn new_from_bin_file(path: &Path, ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>) -> Result<Self, StatusCode> {
+        let buffer = match fs::read(path) {
+            Ok(b) => b,
+            Err(err) => {
+                error!("Error reading file {} - {}", path.display(), err);
+                return Err(StatusCode::BadInvalidArgument);
+            }
+        };
+        Self::new_from_binary(&mut buffer.as_slice(), ds)
+    }
+    /// Load from PubSubConfiguration DataType
+    fn new_from_cfg(cfg: PubSubConfigurationDataType, ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>) -> Result<Self, StatusCode> {
+        let mut obj = Self::new();
+        obj.update(cfg, ds)?;
+        Ok(obj)
+    }
+
+    /// Loads configuration form binary data
+    pub fn new_from_binary<Stream: std::io::Read>(buf: &mut Stream, ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>) -> Result<Self, StatusCode> {
+        // Read as extension object
+        let dec_opts = DecodingOptions::default();
+        let eobj = match ExtensionObject::decode(buf, &dec_opts) {
+            Ok(b) => b,
+            Err(err) => {
+                error!("Error invalid data in configuration");
+                return Err(err);
+            }
+        };
+        let bin = match decode_extension::<UABinaryFileDataType>(
+            &eobj,
+            ObjectId::UABinaryFileDataType_Encoding_DefaultBinary,
+            &dec_opts,
+        ) {
+            Ok(bin) => bin,
+            Err(err) => {
+                error!("Couldn't read UABinaryFileDataType");
+                return Err(err);
+            }
+        };
+        if bin.body.is_array() {
+            error!("Only one PubSubConnection per file is allowed!");
+            Err(StatusCode::BadNotImplemented)
+        } else {
+            match bin.body {
+                Variant::ExtensionObject(ex) => {
+                    match decode_extension::<PubSubConfigurationDataType>(
+                        &ex,
+                        ObjectId::PubSubConfigurationDataType_Encoding_DefaultBinary,
+                        &dec_opts,
+                    ) {
+                        Ok(config) => Self::new_from_cfg(config, ds),
+                        Err(err) => {
+                            error!("BinaryFileDataType body doesn't contain ExtensionObject containing PubSubConnectionConfig!");
+                            Err(err)
+                        }
+                    }
+                }
+                _ => {
+                    error!(
+                        "File doesn't contain ExtensionObject containing PubSubConnectionConfig!"
+                    );
+                    Err(StatusCode::BadTypeMismatch)
+                }
+            }
+        }
+    }
+
+    /// Update PubSubConfiguration
+    fn update(&mut self, cfg: PubSubConfigurationDataType, ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>) -> Result<(), StatusCode> {
+        if let Some(pds_cfgs) = cfg.published_data_sets {
+            for pds in pds_cfgs {
+                if let Some(v) = self.datasets.iter_mut().find(|x| x.name() == pds.name) {
+                    v.update(&pds)?;
+                } else {
+                    self.datasets.push(PublishedDataSet::from_cfg(&pds)?);
+                }
+            }
+        }
+        if let Some(con_cfg) = cfg.connections {
+            for con in con_cfg {
+                if let Some(v) = self
+                    .connections
+                    .iter_mut()
+                    .find(|x| x.publisher_id() == &con.publisher_id)
+                {
+                    v.update(&con)?;
+                } else {
+                    self.add_connection(PubSubConnection::from_cfg(&con, ds.clone())?)?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for PubSubApp {
     fn default() -> Self {
         PubSubApp::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+    #[test]
+    fn test_binary_config() -> Result<(), StatusCode> {
+        let data = include_bytes!("../test_data/test_publisher.bin");
+        let mut c = Cursor::new(data);
+        PubSubApp::new_from_binary(&mut c, None)?;
+        Ok(())
     }
 }

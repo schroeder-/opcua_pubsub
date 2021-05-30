@@ -2,8 +2,13 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 use crate::constants::PubSubTransportProfil;
+use crate::until::decode_extension;
 use log::error;
 use opcua_types::status_code::StatusCode;
+use opcua_types::DecodingOptions;
+use opcua_types::NetworkAddressUrlDataType;
+use opcua_types::ObjectId;
+use opcua_types::PubSubConnectionDataType;
 use opcua_types::UAString;
 use url::Url;
 /// Configures a PubSubConnection with needed settings
@@ -11,6 +16,32 @@ use url::Url;
 pub enum ConnectionConfig {
     Uadp(UadpConfig),
     Mqtt(MqttConfig),
+}
+
+impl ConnectionConfig {
+    pub fn from_cfg(cfg: &PubSubConnectionDataType) -> Result<Self, StatusCode> {
+        let net = decode_extension::<NetworkAddressUrlDataType>(
+            &cfg.address,
+            ObjectId::NetworkAddressUrlDataType_Encoding_DefaultBinary,
+            &DecodingOptions::default(),
+        )?;
+        match PubSubTransportProfil::from(&cfg.transport_profile_uri) {
+            PubSubTransportProfil::UdpUadp => Ok(ConnectionConfig::Uadp(UadpConfig::new_with_if(
+                net.url,
+                net.network_interface,
+            ))),
+            PubSubTransportProfil::MqttUadp => {
+                // @TODO parse cfg
+                // cfg.connection_properties
+                Ok(ConnectionConfig::Mqtt(MqttConfig::new(net.url)))
+            }
+            PubSubTransportProfil::AmqpUadp
+            | PubSubTransportProfil::MqttJson
+            | PubSubTransportProfil::AmqpJson
+            | PubSubTransportProfil::EthUadp
+            | PubSubTransportProfil::Unkown => Err(StatusCode::BadNotImplemented),
+        }
+    }
 }
 
 impl From<UadpConfig> for ConnectionConfig {

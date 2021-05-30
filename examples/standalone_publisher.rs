@@ -1,8 +1,6 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-
-use opcua_pubsub::app::PubSubApp;
 use opcua_pubsub::prelude::*;
 use rand::prelude::*;
 use std::sync::{Arc, RwLock};
@@ -81,7 +79,7 @@ fn main() -> Result<(), StatusCode> {
     PubSubApp::run_thread(pubsub);
     // Simulate a working loop where data is produced
     let mut rng = rand::thread_rng();
-    let mut i = 0;
+    let mut i = 0_u32;
     loop {
         // Update values Time every 100ms all others all 10 seconds
         {
@@ -93,7 +91,8 @@ fn main() -> Result<(), StatusCode> {
                 ds.set_value(&nodes[3], DataValue::new_now(rng.gen::<bool>()));
             }
         }
-        i += 1;
+        i = i.wrapping_add(1);
         thread::sleep(time::Duration::from_millis(100));
     }
 }
+

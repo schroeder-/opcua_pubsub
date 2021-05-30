@@ -16,6 +16,8 @@ use crate::network::configuration::*;
 use crate::network::{
     ConnectionReceiver, Connections, MqttConnection, TransportSettings, UadpNetworkConnection,
 };
+use crate::prelude::PubSubDataSource;
+use crate::prelude::SimpleAddressSpace;
 use crate::reader::ReaderGroup;
 use crate::writer::DataSetWriter;
 use crate::writer::WriterGroup;
@@ -25,6 +27,7 @@ use opcua_types::string::UAString;
 use opcua_types::DataSetMetaDataType;
 use opcua_types::DecodingOptions;
 use opcua_types::EndpointDescription;
+use opcua_types::PubSubConnectionDataType;
 use opcua_types::{ConfigurationVersionDataType, DataValue, Variant};
 use std::io::Cursor;
 use std::sync::mpsc::Sender;
@@ -46,6 +49,7 @@ pub struct PubSubConnectionBuilder {
 /// Implements the Connection.
 #[allow(dead_code)]
 pub struct PubSubConnection {
+    name: UAString,
     network_config: ConnectionConfig,
     publisher_id: Variant,
     connection: Connections,
@@ -133,6 +137,7 @@ impl PubSubConnection {
         }
 
         Ok(PubSubConnection {
+            name: "Con".into(),
             network_config,
             publisher_id,
             connection,
@@ -223,12 +228,12 @@ impl PubSubConnection {
     }
 
     /// Runs all writer, that should run and returns the next call to pull
-    pub fn drive_writer(&mut self, datasets: &Vec<PublishedDataSet>) -> std::time::Duration {
+    pub fn drive_writer(&mut self, datasets: &[PublishedDataSet]) -> std::time::Duration {
         let mut msgs = Vec::new();
         let mut net_offset = 0;
         let inf = PubSubDataSetInfo {
             data_source: &self.data_source,
-            datasets: datasets,
+            datasets,
         };
         for w in &mut self.writer {
             if w.tick() {
@@ -297,7 +302,7 @@ impl PubSubConnection {
         &mut self,
         ds_writer_id: u16,
         ds_writer: Option<&DataSetWriter>,
-        dss: &Vec<PublishedDataSet>,
+        dss: &[PublishedDataSet],
     ) {
         let mut msg = UadpNetworkMessage::new();
         msg.header.publisher_id = Some(self.publisher_id.clone());
@@ -381,11 +386,70 @@ impl PubSubConnection {
             }
         }
     }
+
+    fn internal_update(&mut self, cfg: &PubSubConnectionDataType) -> Result<(), StatusCode> {
+        self.name = cfg.name.clone();
+        if let Some(rgs) = &cfg.reader_groups {
+            for rg in rgs.iter() {
+                if let Some(r) = self.reader.iter_mut().find(|r| r.name == rg.name) {
+                    r.update(rg)?;
+                } else {
+                    self.add_reader_group(ReaderGroup::from_cfg(rg)?);
+                }
+            }
+        }
+        if let Some(wgs) = &cfg.writer_groups {
+            for wg in wgs.iter() {
+                if let Some(w) = self
+                    .writer
+                    .iter_mut()
+                    .find(|w| w.writer_group_id == wg.writer_group_id)
+                {
+                    w.update(wg)?;
+                } else {
+                    self.add_writer_group(WriterGroup::from_cfg(wg)?);
+                }
+            }
+        }
+        Ok(())
+    }
+    /// Updates the connection from PubSubConnectionDataType
+    pub fn update(&mut self, cfg: &PubSubConnectionDataType) -> Result<(), StatusCode> {
+        // Update connection
+        //@TODO update the connection
+        //let con_s = ConnectionConfig::from_cfg(cfg);
+        self.internal_update(cfg)?;
+        Ok(())
+    }
+
+    pub fn from_cfg(cfg: &PubSubConnectionDataType, ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>) -> Result<Self, StatusCode> {
+        // @TODO add data_source
+        let data_source = ds.unwrap_or(SimpleAddressSpace::new_arc_lock());
+        let net_cfg = ConnectionConfig::from_cfg(cfg)?;
+        let mut s = PubSubConnection::new(net_cfg, cfg.publisher_id.clone(), data_source, None)?;
+        s.internal_update(cfg)?;
+        Ok(s)
+    }
+
+    /// Get a reference to the pub sub connection's publisher id.
+    pub fn publisher_id(&self) -> &Variant {
+        &self.publisher_id
+    }
+
+    /// Set the pub sub connection's name.
+    pub fn set_name(&mut self, name: UAString) {
+        self.name = name;
+    }
+
+    /// Get a reference to the pub sub connection's name.
+    pub fn name(&self) -> &UAString {
+        &self.name
+    }
 }
 
 struct PubSubDataSetInfo<'a> {
     data_source: &'a Arc<RwLock<PubSubDataSourceT>>,
-    datasets: &'a Vec<PublishedDataSet>,
+    datasets: &'a [PublishedDataSet],
 }
 
 impl<'a> DataSetInfo for PubSubDataSetInfo<'a> {

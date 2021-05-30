@@ -1,11 +1,22 @@
+// OPC UA Pubsub implementation for Rust
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (C) 2021 Alexander Schrode
 use crate::address_space::PubSubDataSourceT;
 use crate::callback::OnPubSubReciveValues;
+use crate::dataset::DataSetTarget;
 use crate::dataset::{PubSubFieldMetaData, SubscribedDataSet, UpdateTarget};
 use crate::message::uadp::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
 use crate::network::ReaderTransportSettings;
+use crate::until::decode_extension;
 use std::sync::{Arc, Mutex, RwLock};
 
 use log::{error, warn};
+use opcua_types::BrokerDataSetReaderTransportDataType;
+use opcua_types::DataSetReaderDataType;
+use opcua_types::DecodingOptions;
+use opcua_types::ObjectId;
+use opcua_types::ReaderGroupDataType;
+use opcua_types::TargetVariablesDataType;
 use opcua_types::{status_code::StatusCode, string::UAString, DataValue, DateTime, Variant};
 /// Reader group
 pub struct ReaderGroup {
@@ -114,6 +125,29 @@ impl ReaderGroup {
         }
     }
 
+    pub fn from_cfg(cfg: &ReaderGroupDataType) -> Result<Self, StatusCode> {
+        let mut s = ReaderGroup::new(cfg.name.clone());
+        s.update(cfg)?;
+        Ok(s)
+    }
+
+    pub fn update(&mut self, cfg: &ReaderGroupDataType) -> Result<(), StatusCode> {
+        if let Some(rds) = &cfg.data_set_readers {
+            for rd in rds.iter() {
+                if let Some(r) = self
+                    .reader
+                    .iter_mut()
+                    .find(|r| r.dataset_writer_id == rd.data_set_writer_id)
+                {
+                    r.update(rd)?;
+                } else {
+                    self.reader.push(DataSetReader::from_cfg(rd)?);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Loads all transport settings to sub, this is needed for broker support
     pub fn get_transport_cfg(&self) -> Vec<&ReaderTransportSettings> {
         self.reader.iter().map(|r| r.transport_settings()).collect()
@@ -174,6 +208,55 @@ impl DataSetReader {
         None
     }
 
+    pub fn from_cfg(cfg: &DataSetReaderDataType) -> Result<Self, StatusCode> {
+        let mut s = DataSetReader {
+            name: cfg.name.clone(),
+            publisher_id: cfg.publisher_id.clone(),
+            writer_group_id: cfg.writer_group_id,
+            dataset_writer_id: cfg.data_set_writer_id,
+            fields: Vec::new(),
+            sub_data_set: SubscribedDataSet::new(),
+            transport_settings: ReaderTransportSettings::None,
+        };
+        s.update(cfg)?;
+        Ok(s)
+    }
+
+    pub fn update(&mut self, cfg: &DataSetReaderDataType) -> Result<(), StatusCode> {
+        self.name = cfg.name.clone();
+        self.publisher_id = cfg.publisher_id.clone();
+        self.writer_group_id = cfg.writer_group_id;
+        self.dataset_writer_id = cfg.data_set_writer_id;
+        // ; //@TODO move out metadata
+        if let Ok(sds) = decode_extension::<TargetVariablesDataType>(&cfg.subscribed_data_set, ObjectId::TargetVariablesDataType_Encoding_DefaultBinary, &DecodingOptions::default()){
+            self.sub_data_set = SubscribedDataSet::new();
+            sds.target_variables.unwrap_or_default().iter().for_each(|f| self.sub_data_set.add_target(DataSetTarget(f.clone())));
+        }
+        self.transport_settings = if let Ok(s) =
+            decode_extension::<BrokerDataSetReaderTransportDataType>(
+                &cfg.transport_settings,
+                ObjectId::BrokerDataSetReaderTransportDataType_Encoding_DefaultBinary,
+                &DecodingOptions::default(),
+            ) {
+            ReaderTransportSettings::BrokerDataSetReader(s)
+        } else {
+            ReaderTransportSettings::None
+        };
+        if let Some(meta) = &cfg.data_set_meta_data.fields {
+            for m in meta {
+                if let Some(dm) = self
+                    .fields
+                    .iter()
+                    .position(|x| x.data_set_field_id() == &m.data_set_field_id)
+                {
+                    self.fields.remove(dm);
+                }
+                self.add_field(PubSubFieldMetaData::new(m.clone()));
+            }
+        }
+        Ok(())
+    }
+
     fn handle_fields(&self, ds: &UadpDataSetMessage) -> Vec<UpdateTarget> {
         let mut ret = Vec::new();
         let server_t = DateTime::now();
@@ -182,7 +265,7 @@ impl DataSetReader {
             None => StatusCode::Good,
         };
         let source_t = if let Some(dt) = &ds.header.time_stamp {
-            dt.clone()
+            *dt
         } else {
             DateTime::now()
         };
@@ -213,8 +296,8 @@ impl DataSetReader {
                     if p < self.fields.len() {
                         let f = &self.fields[p];
                         let mut dv = DataValue::value_only(v.clone());
-                        dv.source_timestamp = Some(source_t.clone());
-                        dv.server_timestamp = Some(server_t.clone());
+                        dv.source_timestamp = Some(source_t);
+                        dv.server_timestamp = Some(server_t);
                         dv.status = Some(status);
                         ret.push(UpdateTarget(f.data_set_field_id().clone(), dv, f));
                     } else {
@@ -246,8 +329,8 @@ impl DataSetReader {
                     if p < self.fields.len() {
                         let f = &self.fields[p];
                         let mut dv = DataValue::value_only(v.clone());
-                        dv.source_timestamp = Some(source_t.clone());
-                        dv.server_timestamp = Some(server_t.clone());
+                        dv.source_timestamp = Some(source_t);
+                        dv.server_timestamp = Some(server_t);
                         dv.status = Some(status);
                         ret.push(UpdateTarget(f.data_set_field_id().clone(), dv, f));
                     } else {

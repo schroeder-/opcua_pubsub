@@ -1,3 +1,6 @@
+// OPC UA Pubsub implementation for Rust
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (C) 2021 Alexander Schrode
 use opcua_types::UAString;
 
 /// The transport profile to use for this PubSubConnections
@@ -18,9 +21,9 @@ pub enum PubSubTransportProfil {
     Unkown,
 }
 
-impl From<UAString> for PubSubTransportProfil {
+impl From<&UAString> for PubSubTransportProfil {
     /// Get from a UAString containing an urn
-    fn from(transport: UAString) -> Self {
+    fn from(transport: &UAString) -> Self {
         if let Some(str) = transport.value() {
             match str.as_str() {
                 "http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp" => {

@@ -3,6 +3,8 @@
 // Copyright (C) 2021 Alexander Schrode
 use crate::address_space::{PubSubDataSource, PubSubDataSourceT};
 use crate::reader::DataSetReader;
+use crate::until::decode_extension;
+use log::{error, warn};
 #[cfg(feature = "server-integration")]
 use opcua_server::prelude::*;
 use opcua_types::status_code::StatusCode;
@@ -72,6 +74,9 @@ impl PubSubFieldMetaData {
         &self.0.name
     }
 
+    pub fn new(cfg: FieldMetaData) -> Self {
+        Self(cfg)
+    }
     pub fn data_set_field_id(&self) -> &Guid {
         &self.0.data_set_field_id
     }
@@ -255,6 +260,38 @@ impl PublishedDataSet {
             data_set_class_id: self.guid.clone(),
             configuration_version: self.config_version.clone(),
         }
+    }
+
+    pub fn update(&mut self, cfg: &PublishedDataSetDataType) -> Result<(), StatusCode> {
+        self.name = cfg.name.clone();
+        self.config_version = cfg.data_set_meta_data.configuration_version.clone();
+        self.guid = cfg.data_set_meta_data.data_set_class_id.clone();
+        if let Some(meta) = &cfg.data_set_meta_data.fields{
+            let pds  = if let Ok(pd) = decode_extension::<PublishedDataItemsDataType>(&cfg.data_set_source, ObjectId::PublishedDataItemsDataType_Encoding_DefaultBinary, &DecodingOptions::default()){
+                pd.published_data.unwrap_or_default()
+            } 
+            else if let Ok(ev) = decode_extension::<PublishedEventsDataType>(&cfg.data_set_source, ObjectId::PublishedEventsDataType_Encoding_DefaultBinary, &DecodingOptions::default()){
+                error!("PublishedEventsDataType not implemented {}", ev.event_notifier);
+                return Err(StatusCode::BadNotImplemented);
+            } else {
+                warn!("PublishedDataSet config incomplete no know Subtype of PublishedDataSetSourceDataType found");
+                return Err(StatusCode::BadInvalidArgument);
+            };
+            //@TODO sperate publisherdata and meta
+            self.dataset_fields = meta.iter().zip(pds).map(|(x,y)| DataSetField{
+                field_name_alias: x.name.clone(),
+                config_version: ConfigurationVersionDataType{ major_version: 0, minor_version: 0},
+                promoted_field: x.field_flags == DataSetFieldFlags::PromotedField,
+                published_variable_cfg: y,
+            }).collect();
+        }
+        Ok(())
+    }
+
+    pub fn from_cfg(cfg: &PublishedDataSetDataType) -> Result<Self, StatusCode> {
+        let mut s = Self::new(cfg.name.clone());
+        s.update(cfg)?;
+        Ok(s)
     }
 
     pub fn name(&self) -> UAString {

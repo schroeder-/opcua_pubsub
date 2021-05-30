@@ -21,7 +21,7 @@ pub trait OnPubSubReciveValues {
 ///        println!("#### Variable: {} Value: {:?}", meta.name(), dv);
 ///    }
 /// });
-/// ``` 
+/// ```
 pub struct OnReceiveValueFn<T>
 where
     T: Fn(&DataSetReader, &[UpdateTarget]) + Send,

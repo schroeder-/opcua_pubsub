@@ -1,8 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-
-use opcua_pubsub::{app::PubSubApp, prelude::*};
+use opcua_pubsub::prelude::*;
 use std::sync::{Arc, Mutex};
 /// In this example the subscriber gets a notify can when a Subscribed Dataset changed
 /// and can use this information

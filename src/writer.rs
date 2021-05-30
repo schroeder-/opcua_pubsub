@@ -4,13 +4,17 @@
 use crate::dataset::{generate_version_time, DataSetInfo, Promoted, PublishedDataSet};
 use crate::message::{UadpDataSetMessage, UadpGroupHeader, UadpMessageType, UadpNetworkMessage};
 use crate::network::TransportSettings;
+use crate::until::decode_extension;
 use crate::{
     DataSetFieldContentMask, UadpDataSetMessageContentMask, UadpNetworkMessageContentMask,
 };
 use chrono::Utc;
 use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
-use opcua_types::Duration;
+use opcua_types::{
+    BrokerDataSetWriterTransportDataType, DatagramWriterGroupTransportDataType, DecodingOptions,
+    Duration, ObjectTypeId, UadpDataSetWriterMessageDataType, UadpWriterGroupMessageDataType,
+};
 use opcua_types::{BrokerTransportQualityOfService, Guid};
 use opcua_types::{
     BrokerWriterGroupTransportDataType, ConfigurationVersionDataType, DataValue, Variant,
@@ -145,6 +149,70 @@ impl DataSetWriter {
     /// Get Transport Settings
     pub fn transport_settings(&self) -> &TransportSettings {
         &self.transport_settings
+    }
+
+    pub fn decode_transport_message_setting(
+        cfg: &DataSetWriterDataType,
+    ) -> Result<(TransportSettings, UadpDataSetWriterMessageDataType), StatusCode> {
+        let set = match decode_extension::<UadpDataSetWriterMessageDataType>(
+            &cfg.message_settings,
+            opcua_types::ObjectId::UadpDataSetWriterMessageDataType_Encoding_DefaultBinary,
+            &DecodingOptions::default(),
+        ){
+            Ok(set) => set,
+            Err(_) => UadpDataSetWriterMessageDataType{
+                data_set_message_content_mask: UadpDataSetMessageContentMask::None,
+                configured_size: 0,
+                network_message_number: 0,
+                data_set_offset: 0,
+            }
+        };
+        let tr = {
+            if let Ok(t) = decode_extension::<BrokerDataSetWriterTransportDataType>(
+                &cfg.message_settings,
+                opcua_types::ObjectId::BrokerDataSetWriterTransportDataType_Encoding_DefaultBinary,
+                &DecodingOptions::default(),
+            ) {
+                TransportSettings::BrokerDataSetWrite(t)
+            } else {
+                TransportSettings::None
+            }
+        };
+        Ok((tr, set))
+    }
+
+    pub fn update(&mut self, cfg: &DataSetWriterDataType) -> Result<(), StatusCode> {
+        self.dataset_writer_id = cfg.data_set_writer_id;
+        self.delta_frame_counter = 0;
+        self.name = cfg.name.clone();
+        self.key_frame_count = cfg.key_frame_count;
+        self.dataset_name = cfg.data_set_name.clone();
+        self.field_content_mask = cfg.data_set_field_content_mask;
+        let (tansport_setting, msg_settings) = Self::decode_transport_message_setting(&cfg)?;
+        self.transport_settings = tansport_setting;
+        self.message_content_mask = msg_settings.data_set_message_content_mask;
+        Ok(())
+    }
+
+    pub fn from_cfg(cfg: &DataSetWriterDataType) -> Result<Self, StatusCode> {
+        let mut s = DataSetWriter {
+            name: "".into(),
+            desciption: "".into(),
+            dataset_writer_id: 1234_u16,
+            dataset_name: "".into(),
+            field_content_mask: DataSetFieldContentMask::None,
+            message_content_mask: UadpDataSetMessageContentMask::None,
+            key_frame_count: 0,
+            delta_frame_counter: 0,
+            config_version: ConfigurationVersionDataType {
+                major_version: 0,
+                minor_version: 0,
+            },
+            sequence_no: 0,
+            transport_settings: TransportSettings::None,
+        };
+        s.update(cfg)?;
+        Ok(s)
     }
 
     pub fn generate_info(&self) -> DataSetWriterDataType {
@@ -421,6 +489,78 @@ impl WriterGroup {
         &self.transport_settings
     }
 
+    pub fn decode_transport_message_setting(
+        cfg: &WriterGroupDataType,
+    ) -> Result<(TransportSettings, UadpWriterGroupMessageDataType), StatusCode> {
+        let set = decode_extension::<UadpWriterGroupMessageDataType>(
+            &cfg.message_settings,
+            opcua_types::ObjectId::UadpWriterGroupMessageDataType_Encoding_DefaultBinary,
+            &DecodingOptions::default(),
+        )?;
+        let tr = {
+            if let Ok(t) = decode_extension::<BrokerWriterGroupTransportDataType>(
+                &cfg.message_settings,
+                opcua_types::ObjectId::BrokerWriterGroupTransportDataType_Encoding_DefaultBinary,
+                &DecodingOptions::default(),
+            ) {
+                TransportSettings::BrokerWrite(t)
+            } else {
+                TransportSettings::None
+            }
+        };
+        Ok((tr, set))
+    }
+
+    pub fn update(&mut self, cfg: &WriterGroupDataType) -> Result<(), StatusCode> {
+        let (transport, set) = Self::decode_transport_message_setting(cfg)?;
+        self.name = cfg.name.clone();
+        self.enabled = false;
+        self.group_version = set.group_version;
+        self.keep_alive_time = cfg.keep_alive_time;
+        self.last_action = DateTime::null();
+        self.max_network_message_size = cfg.max_network_message_size;
+        self.priorty = cfg.priority;
+        self.publishing_interval = cfg.publishing_interval;
+        self.sequence_no = 0;
+        self.transport_settings = transport;
+        self.message_settings = set.network_message_content_mask;
+        self.writer_group_id = cfg.writer_group_id;
+        if let Some(dswg) = &cfg.data_set_writers {
+            for dsw in dswg {
+                if let Some(w) = self
+                    .writer
+                    .iter_mut()
+                    .find(|x| x.dataset_writer_id == dsw.data_set_writer_id)
+                {
+                    w.update(&dsw)?;
+                } else {
+                    self.add_dataset_writer(DataSetWriter::from_cfg(&dsw)?);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn from_cfg(cfg: &WriterGroupDataType) -> Result<Self, StatusCode> {
+        let mut s = WriterGroup {
+            name: cfg.name.clone(),
+            enabled: false,
+            writer_group_id: cfg.writer_group_id,
+            publishing_interval: 0.0,
+            keep_alive_time: 0.0,
+            message_settings: UadpNetworkMessageContentMask::None,
+            writer: Vec::new(),
+            sequence_no: 0,
+            group_version: generate_version_time(),
+            last_action: DateTime::null(),
+            transport_settings: TransportSettings::None,
+            max_network_message_size: 8192,
+            priorty: 126,
+        };
+        s.update(cfg)?;
+        Ok(s)
+    }
+
     /// Calculate next time the writer has to write data
     pub fn next_tick(&self) -> std::time::Duration {
         // calc point in 100ns where next action takes place
@@ -435,8 +575,8 @@ impl WriterGroup {
                 panic!("Did expect Broker Data Set Write here");
             }
             TransportSettings::BrokerWrite(x) => ExtensionObject::from_encodable(
-                &opcua_types::ObjectTypeId::BrokerWriterGroupTransportType,
-                &opcua_types::BrokerWriterGroupTransportDataType {
+                &ObjectTypeId::BrokerWriterGroupTransportType,
+                &BrokerWriterGroupTransportDataType {
                     queue_name: x.queue_name.clone(),
                     resource_uri: x.resource_uri.clone(),
                     authentication_profile_uri: x.authentication_profile_uri.clone(),
@@ -445,8 +585,8 @@ impl WriterGroup {
             ),
             TransportSettings::None => {
                 ExtensionObject::from_encodable(
-                    opcua_types::ObjectTypeId::DatagramWriterGroupTransportType,
-                    &opcua_types::DatagramWriterGroupTransportDataType {
+                    ObjectTypeId::DatagramWriterGroupTransportType,
+                    &DatagramWriterGroupTransportDataType {
                         /// Repeats not implemented
                         message_repeat_count: 0,
                         message_repeat_delay: 0.0,

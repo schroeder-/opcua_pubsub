@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 
-use opcua_pubsub::app::PubSubApp;
 // Example subscribes to values from pubsub and add them to server variables
 use opcua_pubsub::prelude::*;
 use opcua_server::prelude::*;
