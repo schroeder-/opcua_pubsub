@@ -275,7 +275,7 @@ impl PubSubConnection {
         } else {
             StatusCode::BadNotImplemented
         };
-        let response = UadpPublisherEndpointsResp::new(endps.unwrap_or_default(), status);
+        let response = UadpPublisherEndpointsResp::new(endps, status);
         msg.response = Some(UadpDiscoveryResponse::new(
             InformationType::PublisherEndpoints,
             self.discovery_network_messag_no,
@@ -365,7 +365,7 @@ impl PubSubConnection {
         msg.header.publisher_id = Some(self.publisher_id.clone());
         let (cfg, writer) = writer_g.generate_info();
         let status = vec![StatusCode::Good; writer.len()];
-        let response = UadpDataSetWriterResp::new(writer, cfg, status);
+        let response = UadpDataSetWriterResp::new(Some(writer), cfg, Some(status));
         msg.response = Some(UadpDiscoveryResponse::new(
             InformationType::DataSetWriter,
             self.discovery_network_messag_no,
