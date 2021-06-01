@@ -12,8 +12,9 @@ use chrono::Utc;
 use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
 use opcua_types::{
-    BrokerDataSetWriterTransportDataType, DatagramWriterGroupTransportDataType, DecodingOptions,
-    Duration, ObjectTypeId, UadpDataSetWriterMessageDataType, UadpWriterGroupMessageDataType,
+    BrokerDataSetWriterTransportDataType, DataSetOrderingType,
+    DatagramWriterGroupTransportDataType, DecodingOptions, Duration, ObjectTypeId,
+    UadpDataSetWriterMessageDataType, UadpWriterGroupMessageDataType,
 };
 use opcua_types::{BrokerTransportQualityOfService, Guid};
 use opcua_types::{
@@ -473,6 +474,7 @@ pub struct WriterGroup {
     transport_settings: TransportSettings,
     max_network_message_size: u32,
     priorty: u8,
+    ordering: DataSetOrderingType,
 }
 
 impl WriterGroup {
@@ -525,6 +527,7 @@ impl WriterGroup {
         self.transport_settings = transport;
         self.message_settings = set.network_message_content_mask;
         self.writer_group_id = cfg.writer_group_id;
+        self.ordering = set.data_set_ordering;
         if let Some(dswg) = &cfg.data_set_writers {
             for dsw in dswg {
                 if let Some(w) = self
@@ -556,6 +559,7 @@ impl WriterGroup {
             transport_settings: TransportSettings::None,
             max_network_message_size: 8192,
             priorty: 126,
+            ordering: DataSetOrderingType::Undefined,
         };
         s.update(cfg)?;
         Ok(s)
@@ -597,7 +601,7 @@ impl WriterGroup {
 
         let message_settings = opcua_types::UadpWriterGroupMessageDataType {
             group_version: self.group_version,
-            data_set_ordering: opcua_types::DataSetOrderingType::Undefined,
+            data_set_ordering: self.ordering,
             network_message_content_mask: self.message_settings,
             sampling_offset: -1.0,
             publishing_offset: None,
@@ -630,13 +634,13 @@ impl WriterGroup {
         )
     }
 
-    pub fn generate_message<T: DataSetInfo>(
+    pub fn generate_msg<T: DataSetInfo>(
         &mut self,
         network_no: u16,
+        writer: &[usize],
         publisher_id: &Variant,
         ds: &T,
     ) -> Option<UadpNetworkMessage> {
-        //@TODO do keep alive
         let mut message = UadpNetworkMessage::new();
         if self
             .message_settings
@@ -706,8 +710,9 @@ impl WriterGroup {
         {
             message.timestamp = Some(DateTime::now());
         }
-        let sz = self.writer.len();
-        for w in self.writer.iter_mut() {
+        let sz = writer.len();
+        for wr in writer {
+            let w = &mut self.writer[*wr];
             let vals = ds.collect_values(&w.dataset_name);
             // Only send Promoted Fields if 1 Dataset is send
             if sz == 1
@@ -744,6 +749,43 @@ impl WriterGroup {
         }
     }
 
+    pub fn generate_messages<T: DataSetInfo>(
+        &mut self,
+        network_no: u16,
+        publisher_id: &Variant,
+        ds: &T,
+    ) -> Vec<UadpNetworkMessage> {
+        //@TODO do keep alive
+        //@TODO implement chunking
+        // Sort datasets
+        if self.ordering == DataSetOrderingType::AscendingWriterId
+            || self.ordering == DataSetOrderingType::AscendingWriterIdSingle
+        {
+            self.writer
+                .sort_by(|x, y| x.dataset_writer_id.cmp(&y.dataset_writer_id));
+        }
+        // Only one Datasets
+        if self.ordering == DataSetOrderingType::AscendingWriterIdSingle {
+            let mut v = Vec::new();
+            let szdsw = self.writer.len();
+            for w in 0..szdsw {
+                if let Some(x) = self.generate_msg(network_no, &[w], publisher_id, ds) {
+                    v.push(x);
+                }
+            }
+            v
+        // Generate all Datasets in one message
+        } else {
+            let u = self.writer.len();
+            let w: Vec<usize> = (0..u).collect();
+            if let Some(x) = self.generate_msg(network_no, &w, publisher_id, ds) {
+                vec![x]
+            } else {
+                Vec::new()
+            }
+        }
+    }
+
     pub fn add_dataset_writer(&mut self, dsw: DataSetWriter) {
         self.group_version = generate_version_time();
         self.writer.push(dsw);
@@ -757,6 +799,7 @@ pub struct WriterGroupBuilder {
     keep_alive_time: f64,
     message_settings: UadpNetworkMessageContentMask,
     transport_settings: TransportSettings,
+    ordering: DataSetOrderingType,
 }
 
 impl WriterGroupBuilder {
@@ -771,6 +814,7 @@ impl WriterGroupBuilder {
                 | UadpNetworkMessageContentMask::WriterGroupId
                 | UadpNetworkMessageContentMask::GroupHeader,
             transport_settings: TransportSettings::None,
+            ordering: DataSetOrderingType::Undefined,
         }
     }
 
@@ -792,7 +836,16 @@ impl WriterGroupBuilder {
                     resource_uri: UAString::null(),
                 }
             }),
+            ordering: DataSetOrderingType::Undefined,
         }
+    }
+
+    /// DataSetOrderingType::Undefined =>  The ordering of DataSetMessages is not specified.
+    /// DataSetOrderingType::AscendingWriterId => DataSetMessages are ordered ascending by the value of their corresponding DataSetWriterIds.
+    /// DataSetOrderingType::AscendingWriterIdSingle => DataSetMessages are ordered ascending by the value of their corresponding DataSetWriterIds and only one DataSetMessage is sent per NetworkMessage.
+    pub fn set_ordering(&mut self, ordering: DataSetOrderingType) -> &mut Self {
+        self.ordering = ordering;
+        self
     }
 
     pub fn set_name(&mut self, name: UAString) -> &mut Self {
@@ -835,6 +888,7 @@ impl WriterGroupBuilder {
             transport_settings: self.transport_settings.clone(),
             max_network_message_size: 8192,
             priorty: 126,
+            ordering: self.ordering,
         }
     }
 }

@@ -30,7 +30,7 @@ pub struct PubSubApp {
 
     /// Id counter gets incremented with each new connection
     con_id: u32,
-    // Id counter gets incremented with each dataset
+    /// Id counter gets incremented with each dataset
     dataset_id: u32,
 }
 
@@ -298,6 +298,48 @@ impl PubSubApp {
             }
         }
         Ok(())
+    }
+    /// Generates the configuration to save to file or build an a datasetmodel
+    pub fn generate_cfg(&self) -> Result<PubSubConfigurationDataType, StatusCode> {
+        let mut pds = Vec::new();
+        for ds in self.datasets.iter() {
+            pds.push(ds.generate_cfg()?);
+        }
+        let mut cons = Vec::new();
+        for c in self.connections.iter() {
+            cons.push(c.generate_cfg()?);
+        }
+        Ok(PubSubConfigurationDataType {
+            published_data_sets: Some(pds),
+            connections: Some(cons),
+            enabled: true,
+        })
+    }
+
+    /// Save PubSubConfiguration to writer
+    pub fn save_configuration<Stream: std::io::Write>(
+        &self,
+        stream: &mut Stream,
+    ) -> Result<usize, StatusCode> {
+        let cfg = self.generate_cfg()?;
+        let eobj = ExtensionObject::from_encodable(
+            ObjectId::PubSubConfigurationDataType_Encoding_DefaultBinary,
+            &cfg,
+        );
+        let bin = UABinaryFileDataType {
+            namespaces: None,
+            structure_data_types: None,
+            enum_data_types: None,
+            simple_data_types: None,
+            schema_location: "en".into(),
+            file_header: None,
+            body: eobj.into(),
+        };
+        let ebin = ExtensionObject::from_encodable(
+            ObjectId::UABinaryFileDataType_Encoding_DefaultBinary,
+            &bin,
+        );
+        ebin.encode(stream)
     }
 }
 

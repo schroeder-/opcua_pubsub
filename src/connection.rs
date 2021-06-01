@@ -27,6 +27,8 @@ use opcua_types::string::UAString;
 use opcua_types::DataSetMetaDataType;
 use opcua_types::DecodingOptions;
 use opcua_types::EndpointDescription;
+use opcua_types::ExtensionObject;
+use opcua_types::ObjectId;
 use opcua_types::PubSubConnectionDataType;
 use opcua_types::{ConfigurationVersionDataType, DataValue, Variant};
 use std::io::Cursor;
@@ -38,7 +40,6 @@ pub struct PubSubConnectionId(pub u32);
 
 /// Helps Building a Connection
 /// @TODO add an builder example
-#[allow(dead_code)]
 pub struct PubSubConnectionBuilder {
     name: UAString,
     enabled: bool,
@@ -238,7 +239,7 @@ impl PubSubConnection {
         };
         for w in &mut self.writer {
             if w.tick() {
-                if let Some(msg) = w.generate_message(
+                for msg in w.generate_messages(
                     self.network_message_no + net_offset,
                     &self.publisher_id,
                     &inf,
@@ -427,12 +428,31 @@ impl PubSubConnection {
         cfg: &PubSubConnectionDataType,
         ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
     ) -> Result<Self, StatusCode> {
-        // @TODO add data_source
-        let data_source = ds.unwrap_or(SimpleAddressSpace::new_arc_lock());
+        let data_source = match ds {
+            Some(ds) => ds,
+            None => SimpleAddressSpace::new_arc_lock(),
+        };
         let net_cfg = ConnectionConfig::from_cfg(cfg)?;
         let mut s = PubSubConnection::new(net_cfg, cfg.publisher_id.clone(), data_source, None)?;
         s.internal_update(cfg)?;
         Ok(s)
+    }
+
+    pub fn generate_cfg(&self) -> Result<PubSubConnectionDataType, StatusCode> {
+        Ok(PubSubConnectionDataType {
+            name: self.name.clone(),
+            enabled: false,
+            publisher_id: self.publisher_id.clone(),
+            transport_profile_uri: self.network_config.get_transport_profile().to_string(),
+            address: ExtensionObject::from_encodable(
+                ObjectId::NetworkAddressDataType_Encoding_DefaultBinary,
+                &self.network_config.get_address(),
+            ),
+            connection_properties: Some(self.network_config.get_connection_properties()),
+            transport_settings: opcua_types::ExtensionObject::null(),
+            writer_groups: Some(self.writer.iter().map(|w| w.generate_info().0).collect()),
+            reader_groups: Some(self.reader.iter().map(|r| r.generate_info()).collect()),
+        })
     }
 
     /// Get a reference to the pub sub connection's publisher id.

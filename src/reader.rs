@@ -12,8 +12,13 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use log::{error, warn};
 use opcua_types::BrokerDataSetReaderTransportDataType;
+use opcua_types::ConfigurationVersionDataType;
+use opcua_types::DataSetFieldContentMask;
+use opcua_types::DataSetMetaDataType;
 use opcua_types::DataSetReaderDataType;
 use opcua_types::DecodingOptions;
+use opcua_types::ExtensionObject;
+use opcua_types::Guid;
 use opcua_types::ObjectId;
 use opcua_types::ReaderGroupDataType;
 use opcua_types::TargetVariablesDataType;
@@ -125,6 +130,21 @@ impl ReaderGroup {
         }
     }
 
+    pub fn generate_info(&self) -> ReaderGroupDataType {
+        ReaderGroupDataType {
+            name: self.name.clone(),
+            enabled: true,
+            security_mode: "".into(),
+            security_group_id: "".into(),
+            security_key_services: None,
+            max_network_message_size: 0,
+            group_properties: None,
+            transport_settings: ExtensionObject::null(),
+            message_settings: ExtensionObject::null(),
+            data_set_readers: Some(self.reader.iter().map(|r| r.generate_cfg()).collect()),
+        }
+    }
+
     pub fn from_cfg(cfg: &ReaderGroupDataType) -> Result<Self, StatusCode> {
         let mut s = ReaderGroup::new(cfg.name.clone());
         s.update(cfg)?;
@@ -220,6 +240,53 @@ impl DataSetReader {
         };
         s.update(cfg)?;
         Ok(s)
+    }
+
+    pub fn generate_cfg(&self) -> DataSetReaderDataType {
+        let eb = match &self.transport_settings {
+            ReaderTransportSettings::None => ExtensionObject::null(),
+            ReaderTransportSettings::BrokerDataSetReader(e) => ExtensionObject::from_encodable(
+                ObjectId::BrokerDataSetReaderTransportDataType_Encoding_DefaultBinary,
+                e,
+            ),
+        };
+        DataSetReaderDataType {
+            name: self.name.clone(),
+            enabled: true,
+            publisher_id: self.publisher_id.clone(),
+            writer_group_id: self.writer_group_id,
+            data_set_writer_id: self.dataset_writer_id,
+            data_set_meta_data: DataSetMetaDataType {
+                namespaces: None,
+                structure_data_types: None,
+                enum_data_types: None,
+                simple_data_types: None,
+                name: self.name.clone(),
+                description: "".into(),
+                fields: Some(self.fields.iter().map(|m| m.get_meta().clone()).collect()),
+                data_set_class_id: Guid::null(),
+                configuration_version: ConfigurationVersionDataType {
+                    major_version: 0,
+                    minor_version: 0,
+                },
+            },
+            data_set_field_content_mask: DataSetFieldContentMask::None,
+            message_receive_timeout: 0.0,
+            key_frame_count: 0,
+            header_layout_uri: "".into(),
+            security_mode: opcua_types::MessageSecurityMode::None,
+            security_group_id: "".into(),
+            security_key_services: None,
+            data_set_reader_properties: None,
+            transport_settings: eb,
+            message_settings: ExtensionObject::null(),
+            subscribed_data_set: ExtensionObject::from_encodable(
+                ObjectId::TargetVariablesDataType_Encoding_DefaultBinary,
+                &TargetVariablesDataType {
+                    target_variables: Some(self.sub_data_set.generate_cfg()),
+                },
+            ),
+        }
     }
 
     pub fn update(&mut self, cfg: &DataSetReaderDataType) -> Result<(), StatusCode> {

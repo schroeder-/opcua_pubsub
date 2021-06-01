@@ -494,7 +494,7 @@ impl UadpHeader {
             _ => 3,
         };
         if let Some(f) = &self.publisher_id {
-             sz += match f {
+            sz += match f {
                 Variant::Byte(d) => d.byte_len(),
                 Variant::UInt16(d) => d.byte_len(),
                 Variant::UInt32(d) => d.byte_len(),
@@ -1111,7 +1111,7 @@ impl UadpNetworkMessage {
         if let Some(v) = &self.timestamp {
             sz += v.byte_len();
         }
-        if let Some(_) = self.picoseconds {
+        if self.picoseconds.is_some() {
             sz += 2;
         }
         if !self.promoted_fields.is_empty() {
@@ -1269,7 +1269,7 @@ mod tests {
     use opcua_types::{ConfigurationVersionDataType, LocalizedText};
 
     use super::*;
-    use std::{io::Cursor};
+    use std::io::Cursor;
     #[test]
     fn encode_decode_test() -> Result<(), StatusCode> {
         let mut msg = UadpNetworkMessage::new();

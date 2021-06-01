@@ -21,6 +21,33 @@ pub enum PubSubTransportProfil {
     Unkown,
 }
 
+impl PubSubTransportProfil {
+    pub fn to_string(&self) -> UAString {
+        match self {
+            PubSubTransportProfil::UdpUadp => {
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp"
+            }
+            PubSubTransportProfil::AmqpUadp => {
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-amqp-uadp"
+            }
+            PubSubTransportProfil::AmqpJson => {
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-amqp-json"
+            }
+            PubSubTransportProfil::MqttJson => {
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-json"
+            }
+            PubSubTransportProfil::MqttUadp => {
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-uadp"
+            }
+            PubSubTransportProfil::EthUadp => {
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-eth-uadp"
+            }
+            _ => "",
+        }
+        .into()
+    }
+}
+
 impl From<&UAString> for PubSubTransportProfil {
     /// Get from a UAString containing an urn
     fn from(transport: &UAString) -> Self {

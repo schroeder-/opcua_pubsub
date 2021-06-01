@@ -80,6 +80,10 @@ impl PubSubFieldMetaData {
     pub fn data_set_field_id(&self) -> &Guid {
         &self.0.data_set_field_id
     }
+
+    pub fn get_meta(&self) -> &FieldMetaData {
+        &self.0
+    }
     /// Generates a the configuration from a existing server variable
     #[cfg(feature = "server-integration")]
     pub fn new_from_var(var: &Variable, dt: &DataTypeId) -> Self {
@@ -305,6 +309,32 @@ impl PublishedDataSet {
         Ok(())
     }
 
+    pub fn generate_cfg(&self) -> Result<PublishedDataSetDataType, StatusCode> {
+        let meta = self.generate_meta_data();
+
+        let pds = {
+            PublishedDataItemsDataType {
+                published_data: Some(
+                    self.dataset_fields
+                        .iter()
+                        .map(|x| x.published_variable_cfg.clone())
+                        .collect(),
+                ),
+            }
+        };
+        let source = ExtensionObject::from_encodable(
+            ObjectId::PublishedEventsDataType_Encoding_DefaultBinary,
+            &pds,
+        );
+        Ok(PublishedDataSetDataType {
+            name: self.name.clone(),
+            data_set_folder: None,
+            data_set_meta_data: meta,
+            extension_fields: None,
+            data_set_source: source,
+        })
+    }
+
     pub fn from_cfg(cfg: &PublishedDataSetDataType) -> Result<Self, StatusCode> {
         let mut s = Self::new(cfg.name.clone());
         s.update(cfg)?;
@@ -454,6 +484,10 @@ impl SubscribedDataSet {
                 source.set_pubsub_value(t, value, meta);
             }
         }
+    }
+
+    pub fn generate_cfg(&self) -> Vec<FieldTargetDataType> {
+        self.targets.iter().map(|t| t.0.clone()).collect()
     }
 }
 

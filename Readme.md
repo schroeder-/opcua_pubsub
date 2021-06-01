@@ -18,6 +18,7 @@ Warning this crate is in prototyping stage! Library interfaces will like change.
 * [x] integrated Publisher
 * [x] PubSub EventLoop
 * [ ] Tokio support
+* [ ] Discovery Request and Response handling
 
 ## Protocols
 * [x] Udp wit uadp encoding 
@@ -33,11 +34,12 @@ Warning this crate is in prototyping stage! Library interfaces will like change.
 * [ ] UADP Events Messages
 * [x] UADP Keepalive Message
 * [ ] UADP Chunked Messages
-* [ ] UADP Discovery
+* [X] UADP Discovery
 * [ ] UADP Security
 
 ## Json Messages
-* wip
+* [ ] Json Decoding
+* [ ] Message
 
 ## Integration Publisher with opcua server
 
@@ -57,7 +59,6 @@ Warning this crate is in prototyping stage! Library interfaces will like change.
 * [ ] Information Model
 
 ## WriterGroup
-* [ ] MessageOrdering
 * [ ] Raw Structures
 * [ ] KeepAlive
 * [ ] DeltaFrames

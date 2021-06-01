@@ -1,7 +1,6 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-
 use crate::constants::PubSubTransportProfil;
 use crate::until::decode_extension;
 use log::error;
@@ -41,6 +40,32 @@ impl ConnectionConfig {
             | PubSubTransportProfil::AmqpJson
             | PubSubTransportProfil::EthUadp
             | PubSubTransportProfil::Unkown => Err(StatusCode::BadNotImplemented),
+        }
+    }
+
+    pub fn get_transport_profile(&self) -> PubSubTransportProfil {
+        match self {
+            ConnectionConfig::Uadp(_) => PubSubTransportProfil::UdpUadp,
+            ConnectionConfig::Mqtt(_) => PubSubTransportProfil::MqttUadp,
+        }
+    }
+    pub fn get_address(&self) -> NetworkAddressUrlDataType {
+        match self {
+            ConnectionConfig::Uadp(x) => NetworkAddressUrlDataType {
+                network_interface: x.network_if(),
+                url: x.url.clone(),
+            },
+            ConnectionConfig::Mqtt(x) => NetworkAddressUrlDataType {
+                network_interface: UAString::null(),
+                url: x.url.clone(),
+            },
+        }
+    }
+
+    pub fn get_connection_properties(&self) -> Vec<KeyValuePair> {
+        match self {
+            ConnectionConfig::Uadp(_) => Vec::new(),
+            ConnectionConfig::Mqtt(x) => x.get_connection_properties(),
         }
     }
 }
@@ -168,13 +193,35 @@ impl MqttConfig {
         }
     }
 
+    pub fn get_connection_properties(&self) -> Vec<KeyValuePair> {
+        let kv = vec![
+            KeyValuePair {
+                key: "UserName".into(),
+                value: self.username.clone().into(),
+            },
+            KeyValuePair {
+                key: "Password".into(),
+                value: self.password.clone().into(),
+            },
+            KeyValuePair {
+                key: "CleanSession".into(),
+                value: self.clean_session.into(),
+            },
+            KeyValuePair {
+                key: "ProtocolVersion".into(),
+                value: (self.version as i32).into(),
+            },
+        ];
+        kv
+    }
+
     pub fn new_from_probs(url: UAString, cfg: &Option<Vec<KeyValuePair>>) -> Self {
         let mut mq = Self::new(url);
         if let Some(probs) = &cfg {
             let get_val = |key: UAString| {
                 probs
                     .iter()
-                    .find(|x| &x.key.name == &key)
+                    .find(|x| x.key.name == key)
                     .map_or(&Variant::Empty, |f| &f.value)
             };
             if let Variant::String(ref u) = get_val("UserName".into()) {
