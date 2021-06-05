@@ -1,7 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2020 Alexander Schrode
-use opcua_pubsub::message::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
+use opcua_pubsub::message::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage, UadpPayload};
 use opcua_pubsub::prelude::*;
 use std::{thread, time};
 
@@ -27,10 +27,9 @@ fn main() -> Result<(), StatusCode> {
         let mut msg = UadpNetworkMessage::new();
         msg.timestamp = Some(opcua_types::DateTime::now());
         let var = vec![Variant::from(strs[p % strs.len()]), Variant::from(p as u64)];
-        msg.dataset
-            .push(UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(
-                var,
-            )));
+        msg.payload = UadpPayload::DataSets(vec![UadpDataSetMessage::new(
+            UadpMessageType::KeyFrameVariant(var),
+        )]);
         pubsub.send(&mut msg)?;
         p = p.wrapping_add(1);
         thread::sleep(time::Duration::from_millis(1000));

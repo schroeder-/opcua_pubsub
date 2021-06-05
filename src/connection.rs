@@ -11,6 +11,7 @@ use crate::message::UadpDataSetMetaDataResp;
 use crate::message::UadpDataSetWriterResp;
 use crate::message::UadpDiscoveryResponse;
 use crate::message::UadpNetworkMessage;
+use crate::message::UadpPayload;
 use crate::message::UadpPublisherEndpointsResp;
 use crate::network::configuration::*;
 use crate::network::{
@@ -40,6 +41,7 @@ pub struct PubSubConnectionId(pub u32);
 
 /// Helps Building a Connection
 /// @TODO add an builder example
+#[allow(dead_code)]
 pub struct PubSubConnectionBuilder {
     name: UAString,
     enabled: bool,
@@ -277,11 +279,11 @@ impl PubSubConnection {
             StatusCode::BadNotImplemented
         };
         let response = UadpPublisherEndpointsResp::new(endps, status);
-        msg.response = Some(UadpDiscoveryResponse::new(
+        msg.payload = UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::new(
             InformationType::PublisherEndpoints,
             self.discovery_network_messag_no,
             ResponseType::PublisherEndpoits(response),
-        ));
+        )));
         self.discovery_network_messag_no = self.discovery_network_messag_no.wrapping_add(1);
         let mut c = Vec::new();
         match msg.encode(&mut c) {
@@ -339,11 +341,11 @@ impl PubSubConnection {
             (meta_data, &TransportSettings::None)
         };
         let response = UadpDataSetMetaDataResp::new(ds_writer_id, meta_data, status);
-        msg.response = Some(UadpDiscoveryResponse::new(
+        msg.payload = UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::new(
             InformationType::DataSetMetaData,
             self.discovery_network_messag_no,
             ResponseType::DataSetMetaData(response),
-        ));
+        )));
         self.discovery_network_messag_no = self.discovery_network_messag_no.wrapping_add(1);
         let mut c = Vec::new();
         match msg.encode(&mut c) {
@@ -367,11 +369,11 @@ impl PubSubConnection {
         let (cfg, writer) = writer_g.generate_info();
         let status = vec![StatusCode::Good; writer.len()];
         let response = UadpDataSetWriterResp::new(Some(writer), cfg, Some(status));
-        msg.response = Some(UadpDiscoveryResponse::new(
+        msg.payload = UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::new(
             InformationType::DataSetWriter,
             self.discovery_network_messag_no,
             ResponseType::DataSetWriter(response),
-        ));
+        )));
         self.discovery_network_messag_no = self.discovery_network_messag_no.wrapping_add(1);
         let mut c = Vec::new();
         match msg.encode(&mut c) {

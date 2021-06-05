@@ -6,6 +6,7 @@ use crate::callback::OnPubSubReciveValues;
 use crate::dataset::DataSetTarget;
 use crate::dataset::{PubSubFieldMetaData, SubscribedDataSet, UpdateTarget};
 use crate::message::uadp::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
+use crate::message::UadpPayload;
 use crate::network::ReaderTransportSettings;
 use crate::until::decode_extension;
 use std::sync::{Arc, Mutex, RwLock};
@@ -429,9 +430,10 @@ impl DataSetReader {
         data_source: &Arc<RwLock<PubSubDataSourceT>>,
         cb: &Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
     ) {
-        if let Some(idx) = self.check_message(topic, msg) {
-            if idx < msg.dataset.len() {
-                let ds = &msg.dataset[idx];
+        if let UadpPayload::DataSets(dataset) = &msg.payload {
+            // @TODO handle discovery and chunks
+            if let Some(idx) = self.check_message(topic, msg) {
+                let ds = &dataset[idx];
                 let res = self.handle_fields(ds);
                 if !res.is_empty() {
                     if let Some(cb) = cb {

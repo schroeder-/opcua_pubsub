@@ -1,7 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-use opcua_pubsub::message::{UadpMessageType, UadpNetworkMessage};
+use opcua_pubsub::message::{UadpMessageType, UadpNetworkMessage, UadpPayload};
 use opcua_pubsub::prelude::*;
 
 /// In this example messages a subscribe and print out.
@@ -30,52 +30,65 @@ fn got_message(msg: UadpNetworkMessage) {
     for p in msg.promoted_fields.iter() {
         println!("Promotedfields: {}", p);
     }
-
-    for ds in msg.dataset.iter() {
-        match &ds.data {
-            UadpMessageType::KeyFrameVariant(v) => {
-                println!("# DataVariant");
-                for vv in v.iter() {
-                    println!("var: {}", vv);
+    match msg.payload {
+        UadpPayload::DataSets(datasets) => {
+            for ds in datasets {
+                match &ds.data {
+                    UadpMessageType::KeyFrameVariant(v) => {
+                        println!("# DataVariant");
+                        for vv in v.iter() {
+                            println!("var: {}", vv);
+                        }
+                    }
+                    UadpMessageType::KeyFrameDataValue(v) => {
+                        println!("# DataValue");
+                        for vv in v.iter() {
+                            println!("val: {:?}", vv);
+                        }
+                    }
+                    UadpMessageType::KeyFrameRaw(raw) => {
+                        println!("# DataRaw");
+                        for vv in raw.iter() {
+                            println!("raw: {}", vv.len());
+                        }
+                    }
+                    UadpMessageType::KeyDeltaFrameVariant(dv) => {
+                        println!("# DeltaVariant");
+                        for (id, vv) in dv.iter() {
+                            println!("id: {} var: {:?}", id, vv);
+                        }
+                    }
+                    UadpMessageType::KeyDeltaFrameValue(v) => {
+                        println!("# DeltaValue");
+                        for (id, vv) in v.iter() {
+                            println!("id: {} val: {:?}", id, vv);
+                        }
+                    }
+                    UadpMessageType::KeyDeltaFrameRaw(_) => {
+                        println!("# DeltaRaw");
+                    }
+                    UadpMessageType::Event(v) => {
+                        println!("# Event");
+                        for vv in v.iter() {
+                            println!("var: {:?}", vv);
+                        }
+                    }
+                    UadpMessageType::KeepAlive => {
+                        println!("# KeepAlive")
+                    }
                 }
-            }
-            UadpMessageType::KeyFrameDataValue(v) => {
-                println!("# DataValue");
-                for vv in v.iter() {
-                    println!("val: {:?}", vv);
-                }
-            }
-            UadpMessageType::KeyFrameRaw(raw) => {
-                println!("# DataRaw");
-                for vv in raw.iter() {
-                    println!("raw: {}", vv.len());
-                }
-            }
-            UadpMessageType::KeyDeltaFrameVariant(dv) => {
-                println!("# DeltaVariant");
-                for (id, vv) in dv.iter() {
-                    println!("id: {} var: {:?}", id, vv);
-                }
-            }
-            UadpMessageType::KeyDeltaFrameValue(v) => {
-                println!("# DeltaValue");
-                for (id, vv) in v.iter() {
-                    println!("id: {} val: {:?}", id, vv);
-                }
-            }
-            UadpMessageType::KeyDeltaFrameRaw(_) => {
-                println!("# DeltaRaw");
-            }
-            UadpMessageType::Event(v) => {
-                println!("# Event");
-                for vv in v.iter() {
-                    println!("var: {:?}", vv);
-                }
-            }
-            UadpMessageType::KeepAlive => {
-                println!("# KeepAlive")
             }
         }
+        UadpPayload::DiscoveryRequest(_) => {
+            println!("DiscoveryRequest");
+        }
+        UadpPayload::DiscoveryResponse(_) => {
+            println!("DiscoveryResponse");
+        }
+        UadpPayload::Chunk(_) => {
+            println!("Chunk message not supported in this example");
+        }
+        UadpPayload::None => {}
     }
 }
 

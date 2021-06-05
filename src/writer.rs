@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 use crate::dataset::{generate_version_time, DataSetInfo, Promoted, PublishedDataSet};
-use crate::message::{UadpDataSetMessage, UadpGroupHeader, UadpMessageType, UadpNetworkMessage};
+use crate::message::{
+    UadpDataSetMessage, UadpGroupHeader, UadpMessageType, UadpNetworkMessage, UadpPayload,
+};
 use crate::network::TransportSettings;
 use crate::until::decode_extension;
 use crate::{
@@ -557,7 +559,8 @@ impl WriterGroup {
             group_version: generate_version_time(),
             last_action: DateTime::null(),
             transport_settings: TransportSettings::None,
-            max_network_message_size: 8192,
+            // MTU for ethernet
+            max_network_message_size: 1472,
             priorty: 126,
             ordering: DataSetOrderingType::Undefined,
         };
@@ -711,6 +714,7 @@ impl WriterGroup {
             message.timestamp = Some(DateTime::now());
         }
         let sz = writer.len();
+        let mut datasets = Vec::new();
         for wr in writer {
             let w = &mut self.writer[*wr];
             let vals = ds.collect_values(&w.dataset_name);
@@ -731,7 +735,7 @@ impl WriterGroup {
             let cfg = ds.get_config_version(&w.dataset_name);
             let dataset = w.generate_message(vals, &cfg, self.publishing_interval);
             if let Some(ds) = dataset {
-                message.dataset.push(ds);
+                datasets.push(ds);
                 if self
                     .message_settings
                     .contains(UadpNetworkMessageContentMask::PayloadHeader)
@@ -741,9 +745,10 @@ impl WriterGroup {
             }
         }
         // don't send a message with empty dataset
-        if message.dataset.is_empty() {
+        if datasets.is_empty() {
             None
         } else {
+            message.payload = UadpPayload::DataSets(datasets);
             self.sequence_no = self.sequence_no.wrapping_add(1);
             Some(message)
         }
@@ -886,7 +891,8 @@ impl WriterGroupBuilder {
             group_version: generate_version_time(),
             last_action: DateTime::null(),
             transport_settings: self.transport_settings.clone(),
-            max_network_message_size: 8192,
+            // MTU for ethernet
+            max_network_message_size: 1472,
             priorty: 126,
             ordering: self.ordering,
         }

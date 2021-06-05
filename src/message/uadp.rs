@@ -18,9 +18,12 @@ use opcua_types::{process_decode_io_result, read_u16, read_u32, read_u64, read_u
 use opcua_types::{process_encode_io_result, write_u16, write_u32, write_u8};
 use std::io::{Read, Write};
 /// Uadp Message flags See OPC Unified Architecture, Part 14 7.2.2.2.2
-struct MessageHeaderFlags(u32);
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub(super) struct MessageHeaderFlags(u32);
+
 #[allow(dead_code)]
 impl MessageHeaderFlags {
+    const NONE: u32 = 0;
     // Flags
     const PUBLISHER_ID_EN: u32 = 0b00010000;
     /// If the PublisherId is enabled, the type of PublisherId is indicated in the ExtendedFlags1 field.
@@ -83,18 +86,61 @@ impl MessageDataSetFlags {
 }
 
 /// Header of an Uadp  Message
-#[derive(PartialEq, Debug)]
+#[derive(Debug, Clone)]
 pub struct UadpHeader {
     pub publisher_id: Option<Variant>,
     pub dataset_class_id: Option<Guid>,
+    pub(super) flags: MessageHeaderFlags,
 }
 
-#[allow(dead_code)]
-struct MessageChunk {
+/// Ignore Flags
+impl PartialEq for UadpHeader {
+    fn eq(&self, other: &Self) -> bool {
+        self.publisher_id == other.publisher_id && self.dataset_class_id == other.dataset_class_id
+    }
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct UadpChunk {
     message_sequence_no: u16,
     chunk_offset: u32,
     total_size: u32,
-    chunk_data: [u8],
+    chunk_data: Vec<u8>,
+}
+
+impl UadpChunk {
+    pub fn byte_len(&self) -> usize {
+        let mut sz = 2;
+        sz += 4;
+        sz += 4;
+        sz += self.chunk_data.len();
+        sz
+    }
+
+    pub fn encode<S: Write>(&self, stream: &mut S) -> EncodingResult<usize> {
+        let mut sz = write_u16(stream, self.message_sequence_no)?;
+        sz += write_u32(stream, self.chunk_offset)?;
+        sz += write_u32(stream, self.total_size)?;
+        sz += process_encode_io_result(stream.write(&self.chunk_data))?;
+        Ok(sz)
+    }
+
+    pub fn decode<S: Read>(
+        stream: &mut S,
+        _decoding_opts: &DecodingOptions,
+    ) -> EncodingResult<Self> {
+        let message_sequence_no = read_u16(stream)?;
+        let chunk_offset = read_u32(stream)?;
+        let total_size = read_u32(stream)?;
+        let mut chunk_data = Vec::new();
+        process_decode_io_result(stream.read_to_end(&mut chunk_data))?;
+        Ok(UadpChunk {
+            message_sequence_no,
+            chunk_offset,
+            total_size,
+            chunk_data,
+        })
+    }
 }
 
 /// https://reference.opcfoundation.org/v104/Core/docs/Part4/7.38/
@@ -103,14 +149,14 @@ type VersionTime = u32;
 type UadpDataSetPayload = [u16];
 
 /// Header of group part of an uadp message
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct UadpGroupHeader {
     pub writer_group_id: Option<u16>,
     pub group_version: Option<VersionTime>,
     pub network_message_no: Option<u16>,
     pub sequence_no: Option<u16>,
 }
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct UadpDataSetMessageHeader {
     pub valid: bool,
     pub sequence_no: Option<u16>,
@@ -122,7 +168,7 @@ pub struct UadpDataSetMessageHeader {
 }
 
 /// different Messages types
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum UadpMessageType {
     /// a vector of variants
     KeyFrameVariant(Vec<Variant>),
@@ -150,7 +196,7 @@ pub enum InformationType {
     DataSetWriter = 3,
 }
 /// Response with the Endpoint of the publisher
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct UadpPublisherEndpointsResp {
     endpoints: Option<Vec<EndpointDescription>>,
     status: StatusCode,
@@ -184,7 +230,7 @@ impl UadpPublisherEndpointsResp {
 }
 
 /// Response with the MetaData of an Datasetwriter
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct UadpDataSetMetaDataResp {
     dataset_writer_id: u16,
     meta_data: DataSetMetaDataType,
@@ -230,7 +276,7 @@ impl UadpDataSetMetaDataResp {
 }
 
 /// Response with the DataSetWriters of a Writer Group
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct UadpDataSetWriterResp {
     dataset_writer_ids: Option<Vec<u16>>,
     dataset_writer_config: WriterGroupDataType,
@@ -280,7 +326,7 @@ impl UadpDataSetWriterResp {
 }
 
 /// Response Information
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum ResponseType {
     PublisherEndpoits(UadpPublisherEndpointsResp),
     DataSetMetaData(UadpDataSetMetaDataResp),
@@ -288,7 +334,7 @@ pub enum ResponseType {
 }
 
 /// Struct to request meta infos
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct UadpDiscoveryRequest {
     /// Which type of discovery message
     information_type: InformationType,
@@ -296,7 +342,7 @@ pub struct UadpDiscoveryRequest {
     dataset_writer_ids: Option<Vec<u16>>,
 }
 /// Struct to send meta infos
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct UadpDiscoveryResponse {
     /// Which type of discovery message
     information_type: InformationType,
@@ -422,26 +468,24 @@ impl UadpDiscoveryRequest {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct UadpDataSetMessage {
     pub header: UadpDataSetMessageHeader,
     pub data: UadpMessageType,
 }
 
 impl UadpHeader {
-    /// Check if there are discovery messages and set header flags, error when there is a mix of discovery response and dataframes
-    fn check_for_recovery(msg: &UadpNetworkMessage) -> EncodingResult<u32> {
-        let resp = msg.response.is_some();
-        let req = msg.request.is_some();
-        if !resp && !req {
-            Ok(0)
-        } else if !resp && req && msg.dataset.is_empty() {
-            Ok(MessageHeaderFlags::DISCOVERYREQUEST)
-        } else if resp && !req && msg.dataset.is_empty() {
-            Ok(MessageHeaderFlags::DISCOVERYRESPONSE)
-        } else {
-            error!("Can't mix discovery with dataframes or send discovery respond and request in one message");
-            Err(StatusCode::BadInvalidState)
+    /// Check what payload to send
+    fn payload_flag(msg: &UadpNetworkMessage) -> EncodingResult<u32> {
+        match msg.payload {
+            UadpPayload::DataSets(_) => Ok(0),
+            UadpPayload::DiscoveryRequest(_) => Ok(MessageHeaderFlags::DISCOVERYREQUEST),
+            UadpPayload::DiscoveryResponse(_) => Ok(MessageHeaderFlags::DISCOVERYRESPONSE),
+            UadpPayload::Chunk(_) => Ok(MessageHeaderFlags::CHUNK),
+            UadpPayload::None => {
+                error!("Empty Dataset");
+                Err(StatusCode::BadInvalidState)
+            }
         }
     }
 
@@ -476,7 +520,7 @@ impl UadpHeader {
         if !msg.dataset_payload.is_empty() {
             f |= MessageHeaderFlags::PAYLOAD_HEADER_EN;
         }
-        f |= Self::check_for_recovery(msg)?;
+        f |= Self::payload_flag(msg)?;
         if f > 0xFF {
             f |= MessageHeaderFlags::EXTENDED_FLAGS_1;
         }
@@ -542,10 +586,7 @@ impl UadpHeader {
         Ok(sz)
     }
 
-    fn decode<S: Read>(
-        c: &mut S,
-        limits: &DecodingOptions,
-    ) -> EncodingResult<(UadpHeader, MessageHeaderFlags)> {
+    fn decode<S: Read>(c: &mut S, limits: &DecodingOptions) -> EncodingResult<UadpHeader> {
         let h1 = read_u8(c)?;
         let bitmaskv: u8 = 1 << 0 | 1 << 1 | 1 << 2 | 1 << 3;
         let version: u8 = h1 & bitmaskv;
@@ -581,13 +622,11 @@ impl UadpHeader {
         } else {
             None
         };
-        Ok((
-            UadpHeader {
-                publisher_id,
-                dataset_class_id,
-            },
-            f,
-        ))
+        Ok(UadpHeader {
+            publisher_id,
+            dataset_class_id,
+            flags: f,
+        })
     }
 }
 
@@ -1060,7 +1099,16 @@ impl UadpDataSetMessage {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
+pub enum UadpPayload {
+    DataSets(Vec<UadpDataSetMessage>),
+    DiscoveryRequest(Box<UadpDiscoveryRequest>),
+    DiscoveryResponse(Box<UadpDiscoveryResponse>),
+    Chunk(UadpChunk),
+    None,
+}
+
+#[derive(PartialEq, Debug, Clone)]
 pub struct UadpNetworkMessage {
     pub header: UadpHeader,
     pub group_header: Option<UadpGroupHeader>,
@@ -1068,15 +1116,12 @@ pub struct UadpNetworkMessage {
     pub timestamp: Option<opcua_types::DateTime>,
     pub picoseconds: Option<u16>,
     pub promoted_fields: Vec<Variant>,
-    pub dataset: Vec<UadpDataSetMessage>,
-    pub request: Option<UadpDiscoveryRequest>,
-    pub response: Option<UadpDiscoveryResponse>,
+    pub payload: UadpPayload,
 }
 
 impl UadpNetworkMessage {
     /// creates an empty uadp network message
     pub fn new() -> Self {
-        let dataset = Vec::new();
         let promoted_fields = Vec::new();
         let picoseconds = None;
         let timestamp = None;
@@ -1085,6 +1130,7 @@ impl UadpNetworkMessage {
         let header = UadpHeader {
             dataset_class_id: None,
             publisher_id: None,
+            flags: MessageHeaderFlags(0),
         };
         UadpNetworkMessage {
             header,
@@ -1093,13 +1139,12 @@ impl UadpNetworkMessage {
             timestamp,
             picoseconds,
             promoted_fields,
-            dataset,
-            response: None,
-            request: None,
+            payload: UadpPayload::None,
         }
     }
 
-    pub fn byte_len(&self) -> usize {
+    /// Calcs the size of the static message size, in chunking this value is constant
+    pub fn body_byte_len(&self) -> usize {
         let mut sz = self.header.byte_len(self);
         if let Some(v) = &self.group_header {
             sz += v.byte_len();
@@ -1114,22 +1159,45 @@ impl UadpNetworkMessage {
         if self.picoseconds.is_some() {
             sz += 2;
         }
+        sz
+    }
+
+    pub fn byte_len(&self) -> usize {
+        let mut sz = self.body_byte_len();
         if !self.promoted_fields.is_empty() {
-            sz += 2;
-            sz += self.dataset.len() * 2;
+            match &self.payload {
+                UadpPayload::DataSets(ds) => {
+                    sz += 2;
+                    sz += ds.len() * 2;
+                }
+                UadpPayload::DiscoveryRequest(_)
+                | UadpPayload::DiscoveryResponse(_)
+                | UadpPayload::None => {}
+                UadpPayload::Chunk(_) => {
+                    sz += 2;
+                }
+            }
         }
-        if let Some(req) = &self.request {
-            sz += req.byte_len();
-        } else if let Some(res) = &self.response {
-            sz += res.byte_len();
-        } else {
-            // Don't write payload len if only one dataset is contained via payload header
-            if self.dataset_payload.len() > 1 {
-                sz += 2;
+        match &self.payload {
+            UadpPayload::DataSets(dataset) => {
+                // Don't write payload len if only one dataset is contained via payload header
+                if self.dataset_payload.len() > 1 {
+                    sz += 2;
+                }
+                for v in dataset.iter() {
+                    sz += v.byte_len();
+                }
             }
-            for v in self.dataset.iter() {
-                sz += v.byte_len();
+            UadpPayload::DiscoveryRequest(req) => {
+                sz += req.byte_len();
             }
+            UadpPayload::DiscoveryResponse(res) => {
+                sz += res.byte_len();
+            }
+            UadpPayload::Chunk(chunk) => {
+                sz += chunk.byte_len();
+            }
+            UadpPayload::None => {}
         }
         sz
     }
@@ -1152,29 +1220,51 @@ impl UadpNetworkMessage {
             sz += v.encode(stream)?;
         }
         if !self.promoted_fields.is_empty() {
-            sz += write_u16(stream, self.promoted_fields.len() as u16)?;
-            for v in self.dataset.iter() {
-                sz += v.encode(stream)?;
+            match &self.payload {
+                UadpPayload::DataSets(_) => {
+                    sz += 2;
+                    for v in self.dataset_payload.iter() {
+                        sz += write_u16(stream, *v)?;
+                    }
+                }
+                UadpPayload::DiscoveryRequest(_)
+                | UadpPayload::DiscoveryResponse(_)
+                | UadpPayload::None => {}
+                UadpPayload::Chunk(_) => {
+                    sz += 2;
+                    // Chunk are only allowed to have 1 dataset
+                    let id = self.dataset_payload.first().unwrap_or(&0);
+                    sz += write_u16(stream, *id)?;
+                }
             }
         }
-        if let Some(req) = &self.request {
-            sz += req.encode(stream)?;
-        } else if let Some(res) = &self.response {
-            sz += res.encode(stream)?;
-        } else {
-            // Don't write payload len if only one dataset is contained via payload header
-            if self.dataset_payload.len() > 1 {
-                sz += write_u16(stream, self.dataset.len() as u16)?;
+        match &self.payload {
+            UadpPayload::DataSets(ds) => {
+                // Don't write payload len if only one dataset is contained via payload header
+                if self.dataset_payload.len() > 1 {
+                    sz += write_u16(stream, ds.len() as u16)?;
+                }
+                for v in ds.iter() {
+                    sz += v.encode(stream)?;
+                }
             }
-            for v in self.dataset.iter() {
-                sz += v.encode(stream)?;
+            UadpPayload::DiscoveryRequest(req) => {
+                sz += req.encode(stream)?;
             }
+            UadpPayload::DiscoveryResponse(res) => {
+                sz += res.encode(stream)?;
+            }
+            UadpPayload::Chunk(chunk) => {
+                sz += chunk.encode(stream)?;
+            }
+            UadpPayload::None => {}
         }
         Ok(sz)
     }
 
     pub fn decode<S: Read>(c: &mut S, decoding_options: &DecodingOptions) -> EncodingResult<Self> {
-        let (header, flags) = UadpHeader::decode(c, decoding_options)?;
+        let header = UadpHeader::decode(c, decoding_options)?;
+        let flags = header.flags;
         let group_header = if flags.contains(MessageHeaderFlags::GROUP_HEADER_EN) {
             Some(UadpGroupHeader::decode(c, decoding_options)?)
         } else {
@@ -1210,40 +1300,39 @@ impl UadpNetworkMessage {
         } else {
             Vec::new()
         };
-        let mut request = None;
-        let mut dataset = Vec::new();
-        let mut response = None;
-
-        if flags.contains(MessageHeaderFlags::DISCOVERYRESPONSE) {
-            response = Some(UadpDiscoveryResponse::decode(c, decoding_options)?);
+        let payload = if flags.contains(MessageHeaderFlags::CHUNK) {
+            UadpPayload::Chunk(UadpChunk::decode(c, decoding_options)?)
+        } else if flags.contains(MessageHeaderFlags::DISCOVERYRESPONSE) {
+            UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::decode(
+                c,
+                decoding_options,
+            )?))
         } else if flags.contains(MessageHeaderFlags::DISCOVERYREQUEST) {
-            request = Some(UadpDiscoveryRequest::decode(c, decoding_options)?);
-        } else if flags.contains(MessageHeaderFlags::CHUNK) {
-            error!("Chunking uadp is not supported!");
-            return Err(StatusCode::BadNotImplemented);
+            UadpPayload::DiscoveryRequest(Box::new(UadpDiscoveryRequest::decode(
+                c,
+                decoding_options,
+            )?))
         } else {
-            dataset = {
-                let sz = if flags.contains(MessageHeaderFlags::PAYLOAD_HEADER_EN) {
-                    match dataset_payload.len() {
-                        1 => 1_usize,
-                        _ => read_u16(c)? as usize,
-                    }
-                } else {
-                    1_usize
-                };
-                let mut v = Vec::with_capacity(sz);
-                if sz > 0 {
-                    for _ in 0..sz {
-                        v.push(UadpDataSetMessage::decode(
-                            c,
-                            decoding_options,
-                            &dataset_payload,
-                        )?);
-                    }
+            let sz = if flags.contains(MessageHeaderFlags::PAYLOAD_HEADER_EN) {
+                match dataset_payload.len() {
+                    1 => 1_usize,
+                    _ => read_u16(c)? as usize,
                 }
-                v
+            } else {
+                1_usize
+            };
+            let mut v = Vec::with_capacity(sz);
+            if sz > 0 {
+                for _ in 0..sz {
+                    v.push(UadpDataSetMessage::decode(
+                        c,
+                        decoding_options,
+                        &dataset_payload,
+                    )?);
+                }
             }
-        }
+            UadpPayload::DataSets(v)
+        };
         Ok(UadpNetworkMessage {
             header,
             group_header,
@@ -1251,10 +1340,150 @@ impl UadpNetworkMessage {
             timestamp,
             picoseconds,
             promoted_fields,
-            dataset,
-            request,
-            response,
+            payload,
         })
+    }
+    // Generates a chunked message
+    pub fn chunk(self, max_size: usize, network_no: u16) -> Result<Vec<Self>, StatusCode> {
+        let sz = self.byte_len();
+        if sz > max_size {
+            let body_sz = self.body_byte_len();
+            let mut data = Vec::new();
+            let (payload_header, network_no) = match &self.payload {
+                UadpPayload::DataSets(r) => {
+                    if r.len() != 1 {
+                        error!("Chunking for multiple datasetmessages not supported");
+                        return Err(StatusCode::BadNotSupported);
+                    }
+                    r[0].encode(&mut data)?;
+                    if self.dataset_payload.is_empty() {
+                        error!("Chunking needs dataset payload header");
+                        return Err(StatusCode::BadInvalidArgument);
+                    }
+                    (
+                        self.dataset_payload[0],
+                        r[0].header.sequence_no.unwrap_or(network_no),
+                    )
+                }
+                UadpPayload::DiscoveryRequest(r) => {
+                    r.encode(&mut data)?;
+                    (0, network_no)
+                }
+                UadpPayload::DiscoveryResponse(r) => {
+                    r.encode(&mut data)?;
+                    (0, network_no)
+                }
+                UadpPayload::Chunk(_) => {
+                    error!("Chunking a chunk is not supported");
+                    return Err(StatusCode::BadNotSupported);
+                }
+                UadpPayload::None => (0, 0),
+            };
+            // Worst case 10 Bytes for the Chunkdataheader + 1 Byte for longer header
+            let overhead_sz = body_sz + 11;
+            if overhead_sz > max_size {
+                error!(
+                    "Cant chunk message because headers cant go blow {}",
+                    overhead_sz
+                );
+                return Err(StatusCode::BadEncodingLimitsExceeded);
+            }
+            let chunk_sz = max_size - overhead_sz;
+            let total = data.len() as u32;
+            let mut vec = Vec::new();
+            for (i, chunk) in data.chunks(chunk_sz).enumerate() {
+                vec.push(UadpNetworkMessage {
+                    header: self.header.clone(),
+                    group_header: self.group_header.clone(),
+                    dataset_payload: vec![payload_header],
+                    timestamp: self.timestamp,
+                    picoseconds: self.picoseconds,
+                    promoted_fields: self.promoted_fields.clone(),
+                    payload: UadpPayload::Chunk(UadpChunk {
+                        message_sequence_no: network_no,
+                        chunk_offset: (i * chunk_sz) as u32,
+                        total_size: total,
+                        chunk_data: chunk.to_vec(),
+                    }),
+                });
+            }
+            Ok(vec)
+        } else {
+            Ok(vec![self])
+        }
+    }
+    /// Transforms multiple chunked messages into one message
+    fn dechunk(mut msgs: Vec<Self>) -> Result<Self, StatusCode> {
+        match msgs.len() {
+            0 => {
+                error!("No message found");
+                return Err(StatusCode::BadNoData);
+            }
+            1 => match msgs[0].payload {
+                UadpPayload::Chunk(_) => {}
+                _ => return Ok(msgs.pop().unwrap()),
+            },
+            _ => {
+                if msgs
+                    .iter()
+                    .filter(|a| !matches!(&a.payload, UadpPayload::Chunk(_)))
+                    .count()
+                    > 0
+                {
+                    error!("Messages contains non chunked messages");
+                    return Err(StatusCode::BadDecodingError);
+                }
+            }
+        }
+        let msg1 = msgs.first().unwrap();
+        let flags = msg1.header.flags;
+        let mut ret = UadpNetworkMessage {
+            header: msg1.header.clone(),
+            group_header: msg1.group_header.clone(),
+            dataset_payload: msg1.dataset_payload.clone(),
+            timestamp: msg1.timestamp,
+            picoseconds: msg1.picoseconds,
+            promoted_fields: msg1.promoted_fields.clone(),
+            payload: UadpPayload::None,
+        };
+        ret.header.flags = MessageHeaderFlags(MessageHeaderFlags::NONE);
+        let mut parts: Vec<UadpChunk> = msgs
+            .into_iter()
+            .map(|m| match m.payload {
+                UadpPayload::Chunk(c) => c,
+                _ => panic!("Cant get chunks"),
+            })
+            .collect();
+        let net_no = parts.first().unwrap().message_sequence_no;
+        // Sort alle parts
+        if !parts.iter().all(|c| net_no == c.message_sequence_no) {
+            error!("Not all message numbers are the same");
+            return Err(StatusCode::BadInvalidState);
+        }
+        parts.sort_by(|a, b| a.chunk_offset.cmp(&b.chunk_offset));
+        let data = parts.into_iter().fold(Vec::new(), |mut a, d| {
+            a.extend(d.chunk_data);
+            a
+        });
+        let decoding_opts = DecodingOptions::default();
+        ret.payload = if flags.contains(MessageHeaderFlags::DISCOVERYREQUEST) {
+            UadpPayload::DiscoveryRequest(Box::new(UadpDiscoveryRequest::decode(
+                &mut data.as_slice(),
+                &decoding_opts,
+            )?))
+        } else if flags.contains(MessageHeaderFlags::DISCOVERYRESPONSE) {
+            UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::decode(
+                &mut data.as_slice(),
+                &decoding_opts,
+            )?))
+        } else {
+            UadpPayload::DataSets(vec![UadpDataSetMessage::decode(
+                &mut data.as_slice(),
+                &decoding_opts,
+                &ret.dataset_payload,
+            )?])
+        };
+        Ok(ret)
     }
 }
 
@@ -1275,10 +1504,9 @@ mod tests {
         let mut msg = UadpNetworkMessage::new();
         msg.timestamp = Some(opcua_types::DateTime::now());
         let var = vec![Variant::from("Test123"), Variant::from(64)];
-        msg.dataset
-            .push(UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(
-                var,
-            )));
+        msg.payload = UadpPayload::DataSets(vec![UadpDataSetMessage::new(
+            UadpMessageType::KeyFrameVariant(var),
+        )]);
         let mut data = Vec::new();
         let sz = msg.byte_len();
         let msg_sz = msg.encode(&mut data)?;
@@ -1289,7 +1517,7 @@ mod tests {
             Err(err) => panic!("decode failed {}", err),
         };
         assert_eq!(dec.timestamp, msg.timestamp);
-        assert_eq!(dec.dataset, msg.dataset);
+        assert_eq!(dec.payload, msg.payload);
         assert_eq!(dec, msg);
         Ok(())
     }
@@ -1301,7 +1529,7 @@ mod tests {
         ds.header.cfg_major_version = Some(1234);
         ds.header.cfg_minor_version = Some(12345);
         ds.header.time_stamp = Some(DateTime::now());
-        msg.dataset.push(ds);
+        msg.payload = UadpPayload::DataSets(vec![ds]);
 
         let mut data = Vec::new();
         let sz = msg.byte_len();
@@ -1313,7 +1541,7 @@ mod tests {
             Err(err) => panic!("decode failed {}", err),
         };
         assert_eq!(dec.timestamp, msg.timestamp);
-        assert_eq!(dec.dataset, msg.dataset);
+        assert_eq!(dec.payload, msg.payload);
         assert_eq!(dec, msg);
         Ok(())
     }
@@ -1330,15 +1558,13 @@ mod tests {
         gp.sequence_no = Some(13_u16);
         gp.writer_group_id = Some(555_u16);
         msg.group_header = Some(gp);
-        msg.dataset_payload.push(1234);
         msg.timestamp = Some(opcua_types::DateTime::now());
         let var = vec![Variant::from("Test123"), Variant::from(64)];
         let mut ds = UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(var));
         ds.header.cfg_major_version = Some(1234);
         ds.header.cfg_minor_version = Some(12345);
         ds.header.time_stamp = Some(DateTime::now());
-        msg.dataset.push(ds);
-
+        msg.payload = UadpPayload::DataSets(vec![ds]);
         let mut data = Vec::new();
         let sz = msg.byte_len();
         let msg_sz = msg.encode(&mut data)?;
@@ -1347,7 +1573,7 @@ mod tests {
         let dec = UadpNetworkMessage::decode(&mut c, &DecodingOptions::default())?;
         assert_eq!(dec, msg);
         assert_eq!(dec.timestamp, msg.timestamp);
-        assert_eq!(dec.dataset, msg.dataset);
+        assert_eq!(dec.payload, msg.payload);
         Ok(())
     }
     #[test]
@@ -1356,10 +1582,10 @@ mod tests {
         {
             let mut msg = UadpNetworkMessage::new();
             msg.header.publisher_id = Some(1234_u16.into());
-            msg.request = Some(UadpDiscoveryRequest::new(
+            msg.payload = UadpPayload::DiscoveryRequest(Box::new(UadpDiscoveryRequest::new(
                 InformationType::DataSetMetaData,
                 Some(vec![12u16, 13u16]),
-            ));
+            )));
             let mut data = Vec::new();
             let sz = msg.byte_len();
             let enc_sz = msg.encode(&mut data)?;
@@ -1371,10 +1597,10 @@ mod tests {
         {
             let mut msg = UadpNetworkMessage::new();
             msg.header.publisher_id = Some(1234_u16.into());
-            msg.request = Some(UadpDiscoveryRequest::new(
+            msg.payload = UadpPayload::DiscoveryRequest(Box::new(UadpDiscoveryRequest::new(
                 InformationType::DataSetWriter,
                 Some(vec![12u16]),
-            ));
+            )));
             let mut data = Vec::new();
             let sz = msg.byte_len();
             let enc_sz = msg.encode(&mut data)?;
@@ -1386,10 +1612,10 @@ mod tests {
         {
             let mut msg = UadpNetworkMessage::new();
             msg.header.publisher_id = Some(1234_u16.into());
-            msg.request = Some(UadpDiscoveryRequest::new(
+            msg.payload = UadpPayload::DiscoveryRequest(Box::new(UadpDiscoveryRequest::new(
                 InformationType::PublisherEndpoints,
                 None,
-            ));
+            )));
             let mut data = Vec::new();
             let sz = msg.byte_len();
             let enc_sz = msg.encode(&mut data)?;
@@ -1419,11 +1645,11 @@ mod tests {
                 },
                 status: StatusCode::GoodDataIgnored,
             });
-            msg.response = Some(UadpDiscoveryResponse::new(
+            msg.payload = UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::new(
                 InformationType::DataSetMetaData,
                 1,
                 resp,
-            ));
+            )));
             let mut data = Vec::new();
             let sz = msg.byte_len();
             let enc_sz = msg.encode(&mut data)?;
@@ -1432,6 +1658,48 @@ mod tests {
             let dec = UadpNetworkMessage::decode(&mut c, &DecodingOptions::default())?;
             assert_eq!(dec, msg);
         }
+        Ok(())
+    }
+    #[test]
+    fn chunking_test() -> Result<(), StatusCode> {
+        let mut msg = UadpNetworkMessage::new();
+        msg.header.publisher_id = Some(12345_u16.into());
+        msg.header.dataset_class_id = Some(Guid::new());
+        msg.dataset_payload.push(1234);
+        let mut gp = UadpGroupHeader::new();
+        gp.group_version = Some(1234553_u32);
+        gp.network_message_no = Some(123_u16);
+        gp.sequence_no = Some(13_u16);
+        gp.writer_group_id = Some(555_u16);
+        msg.group_header = Some(gp);
+        msg.timestamp = Some(opcua_types::DateTime::now());
+        let var = vec![Variant::from("Superlongstringtotriggerchunking and stuff"); 100];
+        let mut ds = UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(var));
+        ds.header.cfg_major_version = Some(1234);
+        ds.header.cfg_minor_version = Some(12345);
+        ds.header.time_stamp = Some(DateTime::now());
+        msg.payload = UadpPayload::DataSets(vec![ds]);
+        let org_msg = msg.clone();
+        let msgs = msg.chunk(1000, 1)?;
+        let ne_msg = UadpNetworkMessage::dechunk(msgs)?;
+        assert_eq!(ne_msg.header, org_msg.header);
+        assert_eq!(ne_msg.group_header, org_msg.group_header);
+        if let UadpPayload::DataSets(ne) = &ne_msg.payload {
+            if let UadpPayload::DataSets(org) = &org_msg.payload {
+                assert_eq!(ne.len(), org.len());
+                let ne_d = ne.first().unwrap();
+                let org_d = org.first().unwrap();
+                assert_eq!(ne_d.header, org_d.header);
+                if let UadpMessageType::KeyFrameVariant(n) = &ne_d.data {
+                    if let UadpMessageType::KeyFrameVariant(o) = &org_d.data {
+                        assert_eq!(n.len(), o.len());
+                        assert_eq!(n, o);
+                    }
+                }
+            }
+        }
+        assert_eq!(ne_msg.dataset_payload, org_msg.dataset_payload);
+        assert_eq!(ne_msg, org_msg);
         Ok(())
     }
 }

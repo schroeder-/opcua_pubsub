@@ -4,7 +4,7 @@
 
 // In this integration test the uadp communication is tested
 use opcua_pubsub::connection::PubSubConnection;
-use opcua_pubsub::message::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
+use opcua_pubsub::message::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage, UadpPayload};
 use opcua_pubsub::prelude::*;
 use std::thread;
 
@@ -39,10 +39,9 @@ fn uadp_message_test() -> Result<(), StatusCode> {
         let mut msg = UadpNetworkMessage::new();
         msg.timestamp = Some(opcua_types::DateTime::now());
         let var = vec![Variant::from(strs[p % strs.len()]), Variant::from(p as u64)];
-        msg.dataset
-            .push(UadpDataSetMessage::new(UadpMessageType::KeyFrameVariant(
-                var,
-            )));
+        msg.payload = UadpPayload::DataSets(vec![UadpDataSetMessage::new(
+            UadpMessageType::KeyFrameVariant(var),
+        )]);
         pubsub.send(&mut msg)?;
         sended.push(msg);
     }
