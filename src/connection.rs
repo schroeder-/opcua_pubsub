@@ -85,7 +85,7 @@ impl PubSubReceiver {
         loop {
             match self.receive_msg() {
                 Ok((topic, msg)) => {
-                    let ps = pubsub.write().unwrap();
+                    let mut ps = pubsub.write().unwrap();
                     ps.handle_message(&topic.into(), msg);
                 }
                 Err(err) => {
@@ -189,8 +189,16 @@ impl PubSubConnection {
         self.reader.push(group);
     }
 
-    pub fn handle_message(&self, topic: &UAString, msg: UadpNetworkMessage) {
-        for rg in self.reader.iter() {
+    pub fn handle_message(&mut self, topic: &UAString, msg: UadpNetworkMessage) {
+        if msg.is_chunk() {
+            if *msg.dataset_payload.first().unwrap_or(&10_u16) == 0{
+                //@TODO chunk discovery
+            }
+        }
+        if !msg.is_chunk() && msg.is_discovery() {
+            //@TODO handle discovery
+        }
+        for rg in self.reader.iter_mut() {
             rg.handle_message(&topic, &msg, &self.data_source, &self.value_recv);
         }
     }

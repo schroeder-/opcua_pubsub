@@ -17,6 +17,7 @@ Warning this crate is in prototyping stage! Library interfaces will like change.
 * [x] integrated Subscription
 * [x] integrated Publisher
 * [x] PubSub EventLoop
+* [ ] Events
 * [ ] Tokio support
 * [ ] Discovery Request and Response handling
 
@@ -31,9 +32,8 @@ Warning this crate is in prototyping stage! Library interfaces will like change.
 ## UADP Messages
 * [x] UADP Data Messages
 * [x] UADP Delta Messages
-* [ ] UADP Events Messages
 * [x] UADP Keepalive Message
-* [ ] UADP Chunked Messages
+* [x] UADP Chunked Messages
 * [X] UADP Discovery
 * [ ] UADP Security
 
@@ -61,8 +61,9 @@ Warning this crate is in prototyping stage! Library interfaces will like change.
 ## WriterGroup
 * [ ] Raw Structures
 * [ ] KeepAlive
-* [ ] DeltaFrames
-* [ ] Max message length
+* [ ] DeltaFrames (needs test)
+* [x] Max message length
+* [ ] Events
 
 ## General
 * [ ] Conform specs for alle points

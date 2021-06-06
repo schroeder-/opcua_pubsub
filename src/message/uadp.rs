@@ -16,6 +16,7 @@ use opcua_types::{
 };
 use opcua_types::{process_decode_io_result, read_u16, read_u32, read_u64, read_u8};
 use opcua_types::{process_encode_io_result, write_u16, write_u32, write_u8};
+use std::convert::TryFrom;
 use std::io::{Read, Write};
 /// Uadp Message flags See OPC Unified Architecture, Part 14 7.2.2.2.2
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -1143,6 +1144,27 @@ impl UadpNetworkMessage {
         }
     }
 
+    pub fn is_chunk(&self) -> bool {
+        matches!(&self.payload, UadpPayload::Chunk(_))
+    }
+
+    pub fn is_discovery(&self) -> bool {
+        match &self.payload {
+            UadpPayload::DataSets(_) => false,
+            UadpPayload::DiscoveryRequest(_) | UadpPayload::DiscoveryResponse(_) => true,
+            UadpPayload::Chunk(_) => {
+                self.header
+                    .flags
+                    .contains(MessageHeaderFlags::DISCOVERYREQUEST)
+                    || self
+                        .header
+                        .flags
+                        .contains(MessageHeaderFlags::DISCOVERYRESPONSE)
+            }
+            UadpPayload::None => false,
+        }
+    }
+
     /// Calcs the size of the static message size, in chunking this value is constant
     pub fn body_byte_len(&self) -> usize {
         let mut sz = self.header.byte_len(self);
@@ -1412,8 +1434,56 @@ impl UadpNetworkMessage {
             Ok(vec![self])
         }
     }
+
+    fn dechunk_interal(mut self, mut parts: Vec<UadpChunk>) -> Result<Self, StatusCode> {
+        let flags = self.header.flags;
+        let net_no = parts.first().unwrap().message_sequence_no;
+        // Sort alle parts
+        if !parts.iter().all(|c| net_no == c.message_sequence_no) {
+            error!("Not all message numbers are the same");
+            return Err(StatusCode::BadInvalidState);
+        }
+        parts.sort_by(|a, b| a.chunk_offset.cmp(&b.chunk_offset));
+        let data = parts.into_iter().fold(Vec::new(), |mut a, d| {
+            a.extend(d.chunk_data);
+            a
+        });
+        let decoding_opts = DecodingOptions::default();
+        self.payload = if flags.contains(MessageHeaderFlags::DISCOVERYREQUEST) {
+            UadpPayload::DiscoveryRequest(Box::new(UadpDiscoveryRequest::decode(
+                &mut data.as_slice(),
+                &decoding_opts,
+            )?))
+        } else if flags.contains(MessageHeaderFlags::DISCOVERYRESPONSE) {
+            UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::decode(
+                &mut data.as_slice(),
+                &decoding_opts,
+            )?))
+        } else {
+            UadpPayload::DataSets(vec![UadpDataSetMessage::decode(
+                &mut data.as_slice(),
+                &decoding_opts,
+                &self.dataset_payload,
+            )?])
+        };
+        Ok(self)
+    }
+    // Dechunk from a msg and uadpchunks
+    pub fn dechunk_msg(&self, parts: Vec<UadpChunk>) -> Result<Self, StatusCode> {
+        let ret = UadpNetworkMessage {
+            header: self.header.clone(),
+            group_header: self.group_header.clone(),
+            dataset_payload: self.dataset_payload.clone(),
+            timestamp: self.timestamp,
+            picoseconds: self.picoseconds,
+            promoted_fields: self.promoted_fields.clone(),
+            payload: UadpPayload::None,
+        };
+        ret.dechunk_interal(parts)
+    }
+
     /// Transforms multiple chunked messages into one message
-    fn dechunk(mut msgs: Vec<Self>) -> Result<Self, StatusCode> {
+    pub fn dechunk(mut msgs: Vec<Self>) -> Result<Self, StatusCode> {
         match msgs.len() {
             0 => {
                 error!("No message found");
@@ -1436,8 +1506,7 @@ impl UadpNetworkMessage {
             }
         }
         let msg1 = msgs.first().unwrap();
-        let flags = msg1.header.flags;
-        let mut ret = UadpNetworkMessage {
+        let ret = UadpNetworkMessage {
             header: msg1.header.clone(),
             group_header: msg1.group_header.clone(),
             dataset_payload: msg1.dataset_payload.clone(),
@@ -1446,50 +1515,113 @@ impl UadpNetworkMessage {
             promoted_fields: msg1.promoted_fields.clone(),
             payload: UadpPayload::None,
         };
-        ret.header.flags = MessageHeaderFlags(MessageHeaderFlags::NONE);
-        let mut parts: Vec<UadpChunk> = msgs
+        let parts: Vec<UadpChunk> = msgs
             .into_iter()
             .map(|m| match m.payload {
                 UadpPayload::Chunk(c) => c,
                 _ => panic!("Cant get chunks"),
             })
             .collect();
-        let net_no = parts.first().unwrap().message_sequence_no;
-        // Sort alle parts
-        if !parts.iter().all(|c| net_no == c.message_sequence_no) {
-            error!("Not all message numbers are the same");
-            return Err(StatusCode::BadInvalidState);
-        }
-        parts.sort_by(|a, b| a.chunk_offset.cmp(&b.chunk_offset));
-        let data = parts.into_iter().fold(Vec::new(), |mut a, d| {
-            a.extend(d.chunk_data);
-            a
-        });
-        let decoding_opts = DecodingOptions::default();
-        ret.payload = if flags.contains(MessageHeaderFlags::DISCOVERYREQUEST) {
-            UadpPayload::DiscoveryRequest(Box::new(UadpDiscoveryRequest::decode(
-                &mut data.as_slice(),
-                &decoding_opts,
-            )?))
-        } else if flags.contains(MessageHeaderFlags::DISCOVERYRESPONSE) {
-            UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::decode(
-                &mut data.as_slice(),
-                &decoding_opts,
-            )?))
-        } else {
-            UadpPayload::DataSets(vec![UadpDataSetMessage::decode(
-                &mut data.as_slice(),
-                &decoding_opts,
-                &ret.dataset_payload,
-            )?])
-        };
-        Ok(ret)
+        ret.dechunk_interal(parts)
     }
 }
 
 impl Default for UadpNetworkMessage {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Combines incoming Messages Chunks into complete Messages
+pub struct UadpMessageChunkManager {
+    messages: Vec<UadpChunk>,
+    last_sequence_no: u16,
+    dataset_id: u16,
+}
+
+fn is_sequence_newer(sequence_no: u16, last_sequence_no: u16) -> bool {
+    let v = (65535_u32 + u32::from(sequence_no) - u32::from(last_sequence_no)) % 65536;
+    v < 16384
+}
+
+impl UadpMessageChunkManager {
+    pub fn new(dataset_id: u16) -> Self {
+        UadpMessageChunkManager {
+            messages: Vec::new(),
+            last_sequence_no: u16::MAX,
+            dataset_id,
+        }
+    }
+
+    fn try_build_message(&mut self, msg: &UadpNetworkMessage) -> Option<UadpNetworkMessage> {
+        // Sort Messages
+        self.messages.sort_by(|a, b| {
+            if a.message_sequence_no == b.message_sequence_no {
+                a.chunk_offset.cmp(&b.chunk_offset)
+            } else {
+                b.message_sequence_no.cmp(&a.message_sequence_no)
+            }
+        });
+        // @FIXME messy, maybe do some iterator magic here
+        // Find out if a sequence is completed. Alle elements are sorted seq_no descending and chunk_offset ascending  
+        //   seq_no: chunk_offset
+        // | 123: 0 | 123: 444 | 123: 666 | 122: 0 | 122: 1000 | ....
+        let mut seq = self.last_sequence_no;
+        let mut p = 0;
+        let mut beg = 0;
+        let mut ret = usize::MAX;
+        for (i, msg) in self.messages.iter().enumerate() {
+            if msg.message_sequence_no != seq {
+                seq = msg.message_sequence_no;
+                p = 0;
+                beg = i;
+            }
+            if msg.chunk_offset != p {
+                p = 0;
+            } else {
+                p += u32::try_from(msg.chunk_data.len()).unwrap();
+                if p == msg.total_size {
+                    ret = i;
+                    break;
+                }
+            }
+        }
+        if ret != usize::MAX {
+            let chunks = self.messages.drain(beg..=ret).collect();
+            let res = msg.dechunk_msg(chunks);
+            if res.is_ok(){
+                // Remove older messages and set last_sequence_no
+                self.last_sequence_no = seq;
+                let cur_seq = self.last_sequence_no;
+                self.messages.retain(|x| is_sequence_newer(x.message_sequence_no, cur_seq));
+            }
+            res.ok()
+        } else {
+            None
+        }
+    }
+
+    /// Adds a new chunk message. If the message is a completed return a dechunked message
+    pub fn add_chunk(&mut self, msg: &UadpNetworkMessage) -> Option<UadpNetworkMessage> {
+        let dataset_id = msg.dataset_payload.first();
+        let mut added = false;
+        if let UadpPayload::Chunk(chunk) = &msg.payload {
+            if let Some(id) = dataset_id {
+                if *id == self.dataset_id {
+                    // Filter out older messages
+                    if is_sequence_newer(chunk.message_sequence_no, self.last_sequence_no) {
+                        self.messages.push(chunk.clone());
+                        added = true;
+                    }
+                }
+            } else {
+                warn!("Message without dataset_id");
+            }
+        }
+        if added {
+            return self.try_build_message(msg);
+        }
+        None
     }
 }
 

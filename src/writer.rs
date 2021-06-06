@@ -11,6 +11,7 @@ use crate::{
     DataSetFieldContentMask, UadpDataSetMessageContentMask, UadpNetworkMessageContentMask,
 };
 use chrono::Utc;
+use log::error;
 use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
 use opcua_types::{
@@ -761,7 +762,7 @@ impl WriterGroup {
         ds: &T,
     ) -> Vec<UadpNetworkMessage> {
         //@TODO do keep alive
-        //@TODO implement chunking
+        //@TODO implement reordering of messages if size limit is hit
         // Sort datasets
         if self.ordering == DataSetOrderingType::AscendingWriterId
             || self.ordering == DataSetOrderingType::AscendingWriterIdSingle
@@ -770,12 +771,27 @@ impl WriterGroup {
                 .sort_by(|x, y| x.dataset_writer_id.cmp(&y.dataset_writer_id));
         }
         // Only one Datasets
-        if self.ordering == DataSetOrderingType::AscendingWriterIdSingle {
+        if self.ordering == DataSetOrderingType::AscendingWriterIdSingle || self.writer.len() == 1 {
             let mut v = Vec::new();
             let szdsw = self.writer.len();
             for w in 0..szdsw {
                 if let Some(x) = self.generate_msg(network_no, &[w], publisher_id, ds) {
-                    v.push(x);
+                    // Chunk message
+                    if self.max_network_message_size > 0
+                        && x.byte_len() > self.max_network_message_size as usize
+                    {
+                        let m = x.chunk(self.max_network_message_size as usize, self.sequence_no);
+                        match m {
+                            Ok(mut x) => {
+                                v.append(&mut x);
+                            }
+                            Err(_) => {
+                                error!("Chunking failed!");
+                            }
+                        }
+                    } else {
+                        v.push(x);
+                    }
                 }
             }
             v

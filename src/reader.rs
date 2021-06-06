@@ -6,11 +6,13 @@ use crate::callback::OnPubSubReciveValues;
 use crate::dataset::DataSetTarget;
 use crate::dataset::{PubSubFieldMetaData, SubscribedDataSet, UpdateTarget};
 use crate::message::uadp::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
+use crate::message::UadpMessageChunkManager;
 use crate::message::UadpPayload;
 use crate::network::ReaderTransportSettings;
 use crate::until::decode_extension;
 use std::sync::{Arc, Mutex, RwLock};
 
+use log::trace;
 use log::{error, warn};
 use opcua_types::BrokerDataSetReaderTransportDataType;
 use opcua_types::ConfigurationVersionDataType;
@@ -49,6 +51,7 @@ pub struct DataSetReader {
     fields: Vec<PubSubFieldMetaData>,
     sub_data_set: SubscribedDataSet,
     transport_settings: ReaderTransportSettings,
+    dechunker: UadpMessageChunkManager,
 }
 
 impl DataSetReaderBuilder {
@@ -113,6 +116,7 @@ impl DataSetReaderBuilder {
             fields: Vec::new(),
             sub_data_set: SubscribedDataSet::new(),
             transport_settings: self.transport_settings.clone(),
+            dechunker: UadpMessageChunkManager::new(self.dataset_writer_id),
         }
     }
 }
@@ -176,13 +180,13 @@ impl ReaderGroup {
 
     /// Check the message and forward it to the datasets
     pub fn handle_message(
-        &self,
+        &mut self,
         topic: &UAString,
         msg: &UadpNetworkMessage,
         data_source: &Arc<RwLock<PubSubDataSourceT>>,
         cb: &Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
     ) {
-        for r in self.reader.iter() {
+        for r in self.reader.iter_mut() {
             r.handle_message(topic, msg, &data_source, cb);
         }
     }
@@ -238,6 +242,7 @@ impl DataSetReader {
             fields: Vec::new(),
             sub_data_set: SubscribedDataSet::new(),
             transport_settings: ReaderTransportSettings::None,
+            dechunker: UadpMessageChunkManager::new(cfg.data_set_writer_id),
         };
         s.update(cfg)?;
         Ok(s)
@@ -332,6 +337,27 @@ impl DataSetReader {
         Ok(())
     }
 
+    fn parse_msg(
+        &self,
+        msg: &UadpNetworkMessage,
+        idx: usize,
+        data_source: &Arc<RwLock<PubSubDataSourceT>>,
+        cb: &Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
+    ) {
+        if let UadpPayload::DataSets(dataset) = &msg.payload {
+            // @TODO handle discovery
+            let ds = &dataset[idx];
+            let res = self.handle_fields(ds);
+            if !res.is_empty() {
+                if let Some(cb) = cb {
+                    let mut cb = cb.lock().unwrap();
+                    cb.data_recived(self, &res);
+                }
+                self.sub_data_set.update_targets(res, &data_source);
+            }
+        }
+    }
+
     fn handle_fields(&self, ds: &UadpDataSetMessage) -> Vec<UpdateTarget> {
         let mut ret = Vec::new();
         let server_t = DateTime::now();
@@ -424,25 +450,23 @@ impl DataSetReader {
     }
     /// Handle a message if it matches the writer
     pub fn handle_message(
-        &self,
+        &mut self,
         topic: &UAString,
         msg: &UadpNetworkMessage,
         data_source: &Arc<RwLock<PubSubDataSourceT>>,
         cb: &Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
     ) {
-        if let UadpPayload::DataSets(dataset) = &msg.payload {
-            // @TODO handle discovery and chunks
-            if let Some(idx) = self.check_message(topic, msg) {
-                let ds = &dataset[idx];
-                let res = self.handle_fields(ds);
-                if !res.is_empty() {
-                    if let Some(cb) = cb {
-                        let mut cb = cb.lock().unwrap();
-                        cb.data_recived(self, &res);
-                    }
-                    self.sub_data_set.update_targets(res, &data_source);
+        if let Some(idx) = self.check_message(topic, msg) {
+            // Try Dechunk message if chunk message
+            if let UadpPayload::Chunk(_) = msg.payload {
+                trace!("Got Chunk");
+                if let Some(msg) = self.dechunker.add_chunk(msg) {
+                    trace!("Decunked msg");
+                    self.parse_msg(&msg, idx, data_source, cb);
                 }
-            }
+            } else {
+                self.parse_msg(msg, idx, data_source, cb);
+            };
         }
     }
 

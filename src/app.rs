@@ -1,12 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-use crate::{
-    connection::{ConnectionAction, PubSubConnection, PubSubConnectionId},
-    dataset::PublishedDataSetId,
-    prelude::{PubSubDataSource, PublishedDataSet},
-    until::decode_extension,
-};
+use crate::{connection::{ConnectionAction, PubSubConnection, PubSubConnectionId}, dataset::PublishedDataSetId, prelude::{PubSubDataSource, PublishedDataSet}, until::decode_extension};
 use core::panic;
 use log::error;
 use opcua_types::{
@@ -132,7 +127,7 @@ impl PubSubApp {
             ps.connections.iter().map(|c| c.id().clone()).collect()
         };
         // @Hack implement a correcter loop
-        // for new its ok to get startet 2 threads per connection
+        // for new its ok to get started 2 threads per connection
         let (input_tx, input_rx): (Sender<ConnectionAction>, Receiver<ConnectionAction>) =
             mpsc::channel();
         for id in ids.iter() {
@@ -160,8 +155,8 @@ impl PubSubApp {
             match input_rx.recv() {
                 Ok(action) => match action {
                     ConnectionAction::GotUadp(id, topic, msg) => {
-                        let ps = pubsub.write().unwrap();
-                        let con = ps.get_connection(&id).unwrap();
+                        let mut ps = pubsub.write().unwrap();
+                        let con = ps.get_connection_mut(&id).unwrap();
                         con.handle_message(&topic.into(), msg);
                     }
                     ConnectionAction::DoLoop(_id) => {}
