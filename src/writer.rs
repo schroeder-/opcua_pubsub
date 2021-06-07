@@ -812,7 +812,7 @@ impl WriterGroup {
         self.writer.push(dsw);
     }
 
-    pub fn get_dataset_writer(&self, id: u16) -> Option<&DataSetWriter>{
+    pub fn get_dataset_writer(&self, id: u16) -> Option<&DataSetWriter> {
         self.writer.iter().find(|ds| ds.dataset_writer_id == id)
     }
 }

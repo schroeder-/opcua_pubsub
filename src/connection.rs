@@ -68,7 +68,7 @@ pub struct PubSubConnection {
     id: PubSubConnectionId,
     discovery_network_message_no: u16,
     discovery_dechunk: UadpMessageChunkManager,
-    endpoints: Vec<EndpointDescription>
+    endpoints: Vec<EndpointDescription>,
 }
 
 pub struct PubSubReceiver {
@@ -158,11 +158,14 @@ impl PubSubConnection {
             value_recv,
             id: PubSubConnectionId(0),
             discovery_dechunk: UadpMessageChunkManager::new(0),
-            endpoints: Vec::new()
+            endpoints: Vec::new(),
         })
     }
     /// add data value recv callback when values change
-    pub fn set_data_value_recv(&mut self, cb: Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>) {
+    pub fn set_data_value_recv(
+        &mut self,
+        cb: Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
+    ) {
         self.value_recv = cb;
     }
 
@@ -196,7 +199,7 @@ impl PubSubConnection {
         self.reader.push(group);
     }
 
-    pub fn handle_message(&mut self, topic: &UAString, msg: UadpNetworkMessage){
+    pub fn handle_message(&mut self, topic: &UAString, msg: UadpNetworkMessage) {
         let msg = if msg.is_chunk() {
             // Dataset Id = 0 => Discovery Request or Response Chunk
             if *msg.dataset_payload.first().unwrap_or(&10_u16) == 0 {
@@ -225,7 +228,7 @@ impl PubSubConnection {
                             self.send_dataset_writer_cfg_response();
                         }
                         InformationType::DataSetWriter => {
-                            if let Some(_writer_ids) = req.dataset_writer_ids(){
+                            if let Some(_writer_ids) = req.dataset_writer_ids() {
                                 // @TODO get published dataset to writer
                                 //self.send_metadata_for_datasets(writer_ids);
                             }
@@ -344,13 +347,16 @@ impl PubSubConnection {
         }
     }
     /// Sends all Meta Data for datasets in list if found else send StatusCode bad
-    pub fn send_metadata_for_datasets(&mut self, datasets: &[u16], dss: Vec<&PublishedDataSet>){
+    pub fn send_metadata_for_datasets(&mut self, datasets: &[u16], dss: Vec<&PublishedDataSet>) {
         let mut offset = 0;
-        for w in self.writer.iter(){
-            offset = datasets.iter().map(|id| (id, w.get_dataset_writer(*id))).fold(offset,| i, (id, d)|{
-                self.send_metadata(*id, d, &dss, i);
-                i + 1
-            });
+        for w in self.writer.iter() {
+            offset = datasets
+                .iter()
+                .map(|id| (id, w.get_dataset_writer(*id)))
+                .fold(offset, |i, (id, d)| {
+                    self.send_metadata(*id, d, &dss, i);
+                    i + 1
+                });
         }
         self.update_discovery_network_no(u16::try_from(offset).unwrap_or(0));
     }
@@ -362,7 +368,7 @@ impl PubSubConnection {
         ds_writer_id: u16,
         ds_writer: Option<&DataSetWriter>,
         dss: &Vec<&PublishedDataSet>,
-        offset: u16
+        offset: u16,
     ) {
         let mut msg = UadpNetworkMessage::new();
         msg.header.publisher_id = Some(self.publisher_id.clone());

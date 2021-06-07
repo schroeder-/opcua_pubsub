@@ -42,7 +42,10 @@ fn uadp_message_test() -> Result<(), StatusCode> {
     for p in 0..CNT {
         let mut msg = UadpNetworkMessage::new();
         msg.timestamp = Some(opcua_types::DateTime::now());
-        let var = vec![Variant::from(str_vals[p % str_vals.len()]), Variant::from(p as u64)];
+        let var = vec![
+            Variant::from(str_vals[p % str_vals.len()]),
+            Variant::from(p as u64),
+        ];
         msg.payload = UadpPayload::DataSets(vec![UadpDataSetMessage::new(
             UadpMessageType::KeyFrameVariant(var),
         )]);
