@@ -14,7 +14,7 @@ use std::{iter, thread};
 
 #[test]
 fn uadp_message_test() -> Result<(), StatusCode> {
-    let strs = vec![
+    let str_vals = vec![
         "ALFA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL", "INDIA",
         "JULIETT", "KILO", "LIMA", "MIKE", "NOVEMBER", "OSCAR", "PAPA", "QUEBEC", "ROMEO",
         "SIERRA", "TANGO", "UNIFORM", "VICTOR", "WHISKEY", "X-RAY", "YANKEE", "ZULU",
@@ -31,28 +31,28 @@ fn uadp_message_test() -> Result<(), StatusCode> {
     const CNT: usize = 100;
     let recv = pubsub.create_receiver()?;
     let handler = thread::spawn(move || -> Result<Vec<UadpNetworkMessage>, StatusCode> {
-        let mut recived = Vec::new();
+        let mut received = Vec::new();
         for _ in 0..CNT {
             let (_, msg) = recv.receive_msg()?;
-            recived.push(msg);
+            received.push(msg);
         }
-        Ok(recived)
+        Ok(received)
     });
 
     for p in 0..CNT {
         let mut msg = UadpNetworkMessage::new();
         msg.timestamp = Some(opcua_types::DateTime::now());
-        let var = vec![Variant::from(strs[p % strs.len()]), Variant::from(p as u64)];
+        let var = vec![Variant::from(str_vals[p % str_vals.len()]), Variant::from(p as u64)];
         msg.payload = UadpPayload::DataSets(vec![UadpDataSetMessage::new(
             UadpMessageType::KeyFrameVariant(var),
         )]);
         pubsub.send(&mut msg)?;
         sended.push(msg);
     }
-    let recived = handler.join().expect("Thread got error")?;
-    assert_eq!(recived.len(), sended.len());
+    let received = handler.join().expect("Thread got error")?;
+    assert_eq!(received.len(), sended.len());
     for x in 0..CNT {
-        assert_eq!(recived[x], sended[x]);
+        assert_eq!(received[x], sended[x]);
     }
     Ok(())
 }
@@ -78,7 +78,7 @@ fn generate_pubsub(
         .set_target_variable(NodeId::new(ns, 0))
         .set_alias("ExtraLongString".into())
         .insert(&mut dataset);
-    // Configure a Writer Group which is responsable for sending the messages
+    // Configure a Writer Group which is responsibly for sending the messages
     let msg_settings: UadpNetworkMessageContentMask = UadpNetworkMessageContentMask::PublisherId
         | UadpNetworkMessageContentMask::GroupHeader
         | UadpNetworkMessageContentMask::WriterGroupId
@@ -103,7 +103,7 @@ fn generate_pubsub(
     // create a reader group to handle incoming messages
     let mut rg = ReaderGroup::new("Reader Group 1".into());
     // build the dataset reader to receive values.
-    // publisherid, writergroupid and datasetwriterid are to target publisher and dataset
+    // PublisherId, WriterGroup Id and DatasetWriter Id are to target publisher and dataset
     let mut dsr = DataSetReaderBuilder::new()
         .name("DataSet Reader 1".into())
         .publisher_id(2234_u16.into())
@@ -134,7 +134,7 @@ fn uadp_chunk_test() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     let data_source = SimpleAddressSpace::new_arc_lock();
     let nodes: Vec<NodeId> = (0..8).map(|i| NodeId::new(0, i as u32)).collect();
-    // Generating a pubsubconnection
+    // Generating a PubsubConnection
     let pubsub = generate_pubsub(0, &data_source)?;
     // Spawn a pubsub connection
     PubSubApp::run_thread(pubsub);
@@ -145,12 +145,12 @@ fn uadp_chunk_test() -> Result<(), StatusCode> {
         {
             let mut ds = data_source.write().unwrap();
             let sz = rng.sample(dist);
-            let strs: String = iter::repeat(())
+            let str: String = iter::repeat(())
                 .map(|()| rng.sample(Alphanumeric))
                 .map(char::from)
                 .take(sz)
                 .collect();
-            ds.set_value(&nodes[0], DataValue::new_now(UAString::from(strs)));
+            ds.set_value(&nodes[0], DataValue::new_now(UAString::from(str)));
         }
         thread::sleep(time::Duration::from_millis(1000));
     }

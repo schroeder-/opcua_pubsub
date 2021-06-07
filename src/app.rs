@@ -1,7 +1,12 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-use crate::{connection::{ConnectionAction, PubSubConnection, PubSubConnectionId}, dataset::PublishedDataSetId, prelude::{PubSubDataSource, PublishedDataSet}, until::decode_extension};
+use crate::{
+    connection::{ConnectionAction, PubSubConnection, PubSubConnectionId},
+    dataset::PublishedDataSetId,
+    prelude::{PubSubDataSource, PublishedDataSet},
+    until::decode_extension,
+};
 use core::panic;
 use log::error;
 use opcua_types::{
@@ -22,7 +27,6 @@ pub struct PubSubApp {
     connections: Vec<PubSubConnection>,
     /// the datasets contained in pubsub app
     datasets: Vec<PublishedDataSet>,
-
     /// Id counter gets incremented with each new connection
     con_id: u32,
     /// Id counter gets incremented with each dataset
@@ -77,7 +81,7 @@ impl PubSubApp {
             self.connections.remove(idx);
             Ok(())
         } else {
-            error!("removeing unkown connection: {:?}", connection_id);
+            error!("removing unknown connection: {:?}", connection_id);
             Err(StatusCode::BadInvalidArgument)
         }
     }
@@ -106,7 +110,7 @@ impl PubSubApp {
             self.datasets.remove(idx);
             Ok(())
         } else {
-            error!("removeing unkown connection: {:?}", dataset_id);
+            error!("removing unknown connection: {:?}", dataset_id);
             Err(StatusCode::BadInvalidArgument)
         }
     }
@@ -134,7 +138,7 @@ impl PubSubApp {
             let receiver = {
                 let p = pubsub.write().unwrap();
                 let c = p.get_connection(id).unwrap();
-                c.create_receiver().expect("Error creating reciver")
+                c.create_receiver().expect("Error creating receiver")
             };
             let id1 = id.clone();
             let inp = input_tx.clone();
@@ -171,7 +175,7 @@ impl PubSubApp {
         if let Some(con) = con {
             con.drive_writer(&self.datasets)
         } else {
-            panic!("Shoudln't happen")
+            panic!("shouldn't happen")
         }
     }
     /// runs the pubsub forever
@@ -294,7 +298,7 @@ impl PubSubApp {
         }
         Ok(())
     }
-    /// Generates the configuration to save to file or build an a datasetmodel
+    /// Generates the configuration to save to file or build an a DataSet model
     pub fn generate_cfg(&self) -> Result<PubSubConfigurationDataType, StatusCode> {
         let mut pds = Vec::new();
         for ds in self.datasets.iter() {

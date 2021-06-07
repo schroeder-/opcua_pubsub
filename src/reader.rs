@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 use crate::address_space::PubSubDataSourceT;
-use crate::callback::OnPubSubReciveValues;
+use crate::callback::OnPubSubReceiveValues;
 use crate::dataset::DataSetTarget;
 use crate::dataset::{PubSubFieldMetaData, SubscribedDataSet, UpdateTarget};
 use crate::message::uadp::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage};
@@ -184,7 +184,7 @@ impl ReaderGroup {
         topic: &UAString,
         msg: &UadpNetworkMessage,
         data_source: &Arc<RwLock<PubSubDataSourceT>>,
-        cb: &Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
+        cb: &Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
     ) {
         for r in self.reader.iter_mut() {
             r.handle_message(topic, msg, &data_source, cb);
@@ -342,7 +342,7 @@ impl DataSetReader {
         msg: &UadpNetworkMessage,
         idx: usize,
         data_source: &Arc<RwLock<PubSubDataSourceT>>,
-        cb: &Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
+        cb: &Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
     ) {
         if let UadpPayload::DataSets(dataset) = &msg.payload {
             // @TODO handle discovery
@@ -351,7 +351,7 @@ impl DataSetReader {
             if !res.is_empty() {
                 if let Some(cb) = cb {
                     let mut cb = cb.lock().unwrap();
-                    cb.data_recived(self, &res);
+                    cb.data_received(self, &res);
                 }
                 self.sub_data_set.update_targets(res, &data_source);
             }
@@ -439,7 +439,7 @@ impl DataSetReader {
                     }
                 }
             }
-            // Ignore keep alive this message is for the pusubconnection
+            // Ignore keep alive this message is for the PubSubConnection
             UadpMessageType::KeepAlive => {}
             // Support is missing @TODO implement Events
             UadpMessageType::Event(_) => {
@@ -454,14 +454,14 @@ impl DataSetReader {
         topic: &UAString,
         msg: &UadpNetworkMessage,
         data_source: &Arc<RwLock<PubSubDataSourceT>>,
-        cb: &Option<Arc<Mutex<dyn OnPubSubReciveValues + Send>>>,
+        cb: &Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
     ) {
         if let Some(idx) = self.check_message(topic, msg) {
             // Try Dechunk message if chunk message
             if let UadpPayload::Chunk(_) = msg.payload {
                 trace!("Got Chunk");
                 if let Some(msg) = self.dechunker.add_chunk(msg) {
-                    trace!("Decunked msg");
+                    trace!("Dechunk msg completed");
                     self.parse_msg(&msg, idx, data_source, cb);
                 }
             } else {

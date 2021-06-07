@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 // Generates the subscriber
 fn generate_pubsub(
     ns: u16,
-    cb: Arc<Mutex<dyn OnPubSubReciveValues + Send>>,
+    cb: Arc<Mutex<dyn OnPubSubReceiveValues + Send>>,
 ) -> Result<PubSubApp, StatusCode> {
     let url = "opc.udp://224.0.0.22:4840";
     // Create App
@@ -22,7 +22,7 @@ fn generate_pubsub(
     // create a reader group to handle incoming messages
     let mut rg = ReaderGroup::new("Reader Group 1".into());
     // build the dataset reader to receive values.
-    // publisherid, writergroupid and datasetwriterid are to target publisher and dataset
+    // Publisher id, writer group id and data set writer id are to target publisher and dataset
     let mut dsr = DataSetReaderBuilder::new()
         .name("DataSet Reader 1".into())
         .publisher_id(2234_u16.into())
@@ -45,7 +45,7 @@ fn generate_pubsub(
             .insert(&mut dsr),
         PubSubFieldMetaDataBuilder::new()
             .data_type(&DataTypeId::Boolean)
-            .name("ToogleBool".into())
+            .name("ToggleBool".into())
             .insert(&mut dsr),
     ];
     for (j, x) in fields.iter().enumerate() {
@@ -57,7 +57,7 @@ fn generate_pubsub(
     }
     rg.add_dataset_reader(dsr);
     connection.add_reader_group(rg);
-    connection.set_datavalue_recv(Some(cb));
+    connection.set_data_value_recv(Some(cb));
     pubsub.add_connection(connection)?;
 
     Ok(pubsub)
@@ -65,7 +65,7 @@ fn generate_pubsub(
 
 fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
-    // Generating a pubsubconnection
+    // Generating a PubSubApp
     let cb = OnReceiveValueFn::new_boxed(|reader, dataset| {
         println!("#### Got Dataset from reader: {}", reader.name());
         for UpdateTarget(_, dv, meta) in dataset {

@@ -173,13 +173,13 @@ pub struct UadpDataSetMessageHeader {
 pub enum UadpMessageType {
     /// a vector of variants
     KeyFrameVariant(Vec<Variant>),
-    /// a vector of datavalues
+    /// a vector of DataValues
     KeyFrameDataValue(Vec<DataValue>),
     /// raw data, encoding needs a description of the structured data
     KeyFrameRaw(Vec<Vec<u8>>),
     /// only changed variants are reported, u16 represents the position in dataset
     KeyDeltaFrameVariant(Vec<(u16, Variant)>),
-    /// only changed datavalues are reported
+    /// only changed DataValues are reported
     KeyDeltaFrameValue(Vec<(u16, DataValue)>),
     /// only raw changed elements of dataset
     KeyDeltaFrameRaw(Vec<(u16, Vec<u8>)>),
@@ -329,7 +329,7 @@ impl UadpDataSetWriterResp {
 /// Response Information
 #[derive(PartialEq, Debug, Clone)]
 pub enum ResponseType {
-    PublisherEndpoits(UadpPublisherEndpointsResp),
+    PublisherEndpoints(UadpPublisherEndpointsResp),
     DataSetMetaData(UadpDataSetMetaDataResp),
     DataSetWriter(UadpDataSetWriterResp),
 }
@@ -370,7 +370,7 @@ impl UadpDiscoveryResponse {
         let mut sz = 1;
         sz += self.sequence_number.byte_len();
         sz += match &self.response {
-            ResponseType::PublisherEndpoits(d) => d.byte_len(),
+            ResponseType::PublisherEndpoints(d) => d.byte_len(),
             ResponseType::DataSetMetaData(d) => d.byte_len(),
             ResponseType::DataSetWriter(d) => d.byte_len(),
         };
@@ -381,7 +381,7 @@ impl UadpDiscoveryResponse {
         let mut sz = write_u8(stream, self.information_type as u8)?;
         sz += write_u16(stream, self.sequence_number)?;
         sz += match &self.response {
-            ResponseType::PublisherEndpoits(d) => d.encode(stream)?,
+            ResponseType::PublisherEndpoints(d) => d.encode(stream)?,
             ResponseType::DataSetMetaData(d) => d.encode(stream)?,
             ResponseType::DataSetWriter(d) => d.encode(stream)?,
         };
@@ -403,7 +403,7 @@ impl UadpDiscoveryResponse {
         };
         let sequence_number = read_u16(stream)?;
         let response = match information_type {
-            InformationType::PublisherEndpoints => ResponseType::PublisherEndpoits(
+            InformationType::PublisherEndpoints => ResponseType::PublisherEndpoints(
                 UadpPublisherEndpointsResp::decode(stream, decoding_opts)?,
             ),
             InformationType::DataSetMetaData => ResponseType::DataSetMetaData(
@@ -466,6 +466,16 @@ impl UadpDiscoveryRequest {
             information_type,
             dataset_writer_ids,
         })
+    }
+
+    /// Get a reference to the uadp discovery request's information type.
+    pub fn information_type(&self) -> &InformationType {
+        &self.information_type
+    }
+
+    /// Get a reference to the uadp discovery request's dataset writer ids.
+    pub fn dataset_writer_ids(&self) -> Option<&Vec<u16>> {
+        self.dataset_writer_ids.as_ref()
     }
 }
 
@@ -1435,7 +1445,7 @@ impl UadpNetworkMessage {
         }
     }
 
-    fn dechunk_interal(mut self, mut parts: Vec<UadpChunk>) -> Result<Self, StatusCode> {
+    fn dechunk_internal(mut self, mut parts: Vec<UadpChunk>) -> Result<Self, StatusCode> {
         let flags = self.header.flags;
         let net_no = parts.first().unwrap().message_sequence_no;
         // Sort alle parts
@@ -1479,7 +1489,7 @@ impl UadpNetworkMessage {
             promoted_fields: self.promoted_fields.clone(),
             payload: UadpPayload::None,
         };
-        ret.dechunk_interal(parts)
+        ret.dechunk_internal(parts)
     }
 
     /// Transforms multiple chunked messages into one message
@@ -1522,7 +1532,7 @@ impl UadpNetworkMessage {
                 _ => panic!("Cant get chunks"),
             })
             .collect();
-        ret.dechunk_interal(parts)
+        ret.dechunk_internal(parts)
     }
 }
 
@@ -1563,7 +1573,7 @@ impl UadpMessageChunkManager {
             }
         });
         // @FIXME messy, maybe do some iterator magic here
-        // Find out if a sequence is completed. Alle elements are sorted seq_no descending and chunk_offset ascending  
+        // Find out if a sequence is completed. Alle elements are sorted seq_no descending and chunk_offset ascending
         //   seq_no: chunk_offset
         // | 123: 0 | 123: 444 | 123: 666 | 122: 0 | 122: 1000 | ....
         let mut seq = self.last_sequence_no;
@@ -1589,11 +1599,12 @@ impl UadpMessageChunkManager {
         if ret != usize::MAX {
             let chunks = self.messages.drain(beg..=ret).collect();
             let res = msg.dechunk_msg(chunks);
-            if res.is_ok(){
+            if res.is_ok() {
                 // Remove older messages and set last_sequence_no
                 self.last_sequence_no = seq;
                 let cur_seq = self.last_sequence_no;
-                self.messages.retain(|x| is_sequence_newer(x.message_sequence_no, cur_seq));
+                self.messages
+                    .retain(|x| is_sequence_newer(x.message_sequence_no, cur_seq));
             }
             res.ok()
         } else {

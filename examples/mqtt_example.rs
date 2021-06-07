@@ -14,7 +14,7 @@ use std::{thread, time};
 fn generate_pubsub(
     ns: u16,
     addr: &Arc<RwLock<SimpleAddressSpace>>,
-    cb: Arc<Mutex<dyn OnPubSubReciveValues + Send>>,
+    cb: Arc<Mutex<dyn OnPubSubReceiveValues + Send>>,
 ) -> Result<PubSubApp, StatusCode> {
     let topic: UAString = "OPCUA_TEST/Data".into();
     let topic_meta: UAString = "OPCUA_TEST/Meta".into();
@@ -48,7 +48,7 @@ fn generate_pubsub(
         .set_target_variable(NodeId::new(ns, 3))
         .set_alias("BoolToggle".into())
         .insert(&mut dataset);
-    // Configure a Writer Group which is responsable for sending the messages
+    // Configure a Writer Group which is responsible for sending the messages
     let mut wg = WriterGroupBuilder::new_for_broker(&topic, &QOS)
         .set_name("WriterGroup1".into())
         .set_group_id(100)
@@ -68,7 +68,7 @@ fn generate_pubsub(
     // create a reader group to handle incoming messages
     let mut rg = ReaderGroup::new("Reader Group 1".into());
     // build the dataset reader to receive values.
-    // publisherid, writergroupid and datasetwriterid are to target publisher and dataset
+    // Publisher id, writer group id and dataset writer id are to target publisher and dataset
     let mut dsr = DataSetReaderBuilder::new_for_broker(&topic, &topic_meta, QOS)
         .name("DataSet Reader 1".into())
         .publisher_id(2234_u16.into())
@@ -90,12 +90,12 @@ fn generate_pubsub(
         .insert(&mut dsr);
     PubSubFieldMetaDataBuilder::new()
         .data_type(&DataTypeId::Boolean)
-        .name("ToogleBool".into())
+        .name("ToggleBool".into())
         .insert(&mut dsr);
 
     rg.add_dataset_reader(dsr);
     connection.add_reader_group(rg);
-    connection.set_datavalue_recv(Some(cb));
+    connection.set_data_value_recv(Some(cb));
     pubsub.add_connection(connection)?;
 
     Ok(pubsub)
@@ -112,7 +112,7 @@ fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     let data_source = SimpleAddressSpace::new_arc_lock();
     let nodes: Vec<NodeId> = (0..8).map(|i| NodeId::new(0, i as u32)).collect();
-    // Generating a pubsubconnection
+    // Generating a PubSubApp
     let cb = OnReceiveValueFn::new_boxed(on_value);
     let pubsub = generate_pubsub(0, &data_source, cb)?;
 

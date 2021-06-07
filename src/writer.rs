@@ -30,7 +30,7 @@ use opcua_types::{
 
 pub struct DataSetWriterBuilder {
     name: UAString,
-    desciption: LocalizedText,
+    description: LocalizedText,
     dataset_writer_id: u16,
     field_content_mask: DataSetFieldContentMask,
     message_content_mask: UadpDataSetMessageContentMask,
@@ -43,7 +43,7 @@ impl DataSetWriterBuilder {
     pub fn new(pds: &PublishedDataSet) -> Self {
         DataSetWriterBuilder {
             name: "DataSetWriter".into(),
-            desciption: "".into(),
+            description: "".into(),
             dataset_writer_id: 12345,
             field_content_mask: DataSetFieldContentMask::None,
             key_frame_count: 10,
@@ -55,7 +55,7 @@ impl DataSetWriterBuilder {
         }
     }
 
-    /// For broker based protocols like mqtt and amqp configuration like topic name are needed
+    /// For broker based protocols like mqtt and AMQP configuration like topic name are needed
     pub fn new_for_broker(
         pds: &PublishedDataSet,
         meta_publish_interval: f64,
@@ -63,7 +63,7 @@ impl DataSetWriterBuilder {
         meta_qos: &BrokerTransportQualityOfService,
     ) -> Self {
         DataSetWriterBuilder {
-            desciption: "".into(),
+            description: "".into(),
             name: "DataSetWriter".into(),
             dataset_writer_id: 12345,
             field_content_mask: DataSetFieldContentMask::None,
@@ -85,8 +85,8 @@ impl DataSetWriterBuilder {
         }
     }
 
-    pub fn desciption(&mut self, desc: LocalizedText) -> &mut Self {
-        self.desciption = desc;
+    pub fn description(&mut self, desc: LocalizedText) -> &mut Self {
+        self.description = desc;
         self
     }
 
@@ -118,7 +118,7 @@ impl DataSetWriterBuilder {
     pub fn build(&self) -> DataSetWriter {
         DataSetWriter {
             name: self.name.clone(),
-            desciption: self.desciption.clone(),
+            description: self.description.clone(),
             dataset_writer_id: self.dataset_writer_id,
             dataset_name: self.dataset_name.clone(),
             field_content_mask: self.field_content_mask,
@@ -137,7 +137,7 @@ impl DataSetWriterBuilder {
 
 pub struct DataSetWriter {
     pub name: UAString,
-    pub desciption: LocalizedText,
+    pub description: LocalizedText,
     pub dataset_writer_id: u16,
     pub dataset_name: UAString,
     field_content_mask: DataSetFieldContentMask,
@@ -192,8 +192,8 @@ impl DataSetWriter {
         self.key_frame_count = cfg.key_frame_count;
         self.dataset_name = cfg.data_set_name.clone();
         self.field_content_mask = cfg.data_set_field_content_mask;
-        let (tansport_setting, msg_settings) = Self::decode_transport_message_setting(&cfg)?;
-        self.transport_settings = tansport_setting;
+        let (transport_setting, msg_settings) = Self::decode_transport_message_setting(&cfg)?;
+        self.transport_settings = transport_setting;
         self.message_content_mask = msg_settings.data_set_message_content_mask;
         Ok(())
     }
@@ -201,7 +201,7 @@ impl DataSetWriter {
     pub fn from_cfg(cfg: &DataSetWriterDataType) -> Result<Self, StatusCode> {
         let mut s = DataSetWriter {
             name: "".into(),
-            desciption: "".into(),
+            description: "".into(),
             dataset_writer_id: 1234_u16,
             dataset_name: "".into(),
             field_content_mask: DataSetFieldContentMask::None,
@@ -233,10 +233,10 @@ impl DataSetWriter {
                 },
             ),
             TransportSettings::BrokerWrite(_) => {
-                panic!("Didn't exect Broker Write Groupe settings here");
+                panic!("Didn't expect Broker Write Groupe settings here");
             }
             TransportSettings::None => {
-                // @TODO check if this ok because for datagram there are no transport settings for datasetwriter
+                // @TODO check if this ok because for datagram there are no transport settings for DatasetWriter
                 ExtensionObject::null()
             }
         };
@@ -323,10 +323,10 @@ impl DataSetWriter {
         // The exception is if the dataset only contains 1 field because generating
         // a delta frame for 1 element is longer then sending a keyframe
         let dataset = if ds.len() > 1 && self.delta_frame_counter < self.key_frame_count {
-            let timediff = chrono::Duration::milliseconds(
+            let time_diff = chrono::Duration::milliseconds(
                 (publishing_interval * self.delta_frame_counter as f64) as i64,
             );
-            let offset: DateTime = (Utc::now() - timediff).into();
+            let offset: DateTime = (Utc::now() - time_diff).into();
             // Generate a DeltaFrame with Variants
             if self.field_content_mask.is_empty() {
                 let mut cnt: u16 = 0;
@@ -354,14 +354,14 @@ impl DataSetWriter {
                     Some(UadpMessageType::KeyDeltaFrameVariant(vec))
                 }
             }
-            // Generate a DeltaFrame with rawdata
+            // Generate a DeltaFrame with RawData
             else if self
                 .field_content_mask
                 .contains(DataSetFieldContentMask::RawData)
             {
                 None // @TODO Atm raw transport is not supported
             }
-            // Generate a deltaframe with dataValue
+            // Generate a DeltaFrame with DataValue
             else {
                 let mut cnt: u16 = 0;
                 let mut vec = Vec::new();
@@ -419,7 +419,7 @@ impl DataSetWriter {
             {
                 None // @TODO Not supported at the moment
             }
-            // Generate KeyFram with DataValue
+            // Generate KeyFrame with DataValue
             else {
                 let mut vec = Vec::new();
                 for (_, mut d) in ds {
@@ -476,14 +476,14 @@ pub struct WriterGroup {
     last_action: DateTime,
     transport_settings: TransportSettings,
     max_network_message_size: u32,
-    priorty: u8,
+    priority: u8,
     ordering: DataSetOrderingType,
 }
 
 impl WriterGroup {
     /// Check if action is required
     pub fn tick(&mut self) -> bool {
-        //@TODO check keepalive
+        //@TODO check KeepAlive
         // Convert publishing_interval from Milliseconds + fraction to 100 nano Seconds
         (self.last_action.ticks() + (self.publishing_interval * 1000.0) as i64)
             < DateTime::now().ticks()
@@ -524,7 +524,7 @@ impl WriterGroup {
         self.keep_alive_time = cfg.keep_alive_time;
         self.last_action = DateTime::null();
         self.max_network_message_size = cfg.max_network_message_size;
-        self.priorty = cfg.priority;
+        self.priority = cfg.priority;
         self.publishing_interval = cfg.publishing_interval;
         self.sequence_no = 0;
         self.transport_settings = transport;
@@ -562,7 +562,7 @@ impl WriterGroup {
             transport_settings: TransportSettings::None,
             // MTU for ethernet
             max_network_message_size: 1472,
-            priorty: 126,
+            priority: 126,
             ordering: DataSetOrderingType::Undefined,
         };
         s.update(cfg)?;
@@ -627,7 +627,7 @@ impl WriterGroup {
                 writer_group_id: self.writer_group_id,
                 publishing_interval: self.publishing_interval,
                 keep_alive_time: self.keep_alive_time,
-                priority: self.priorty,
+                priority: self.priority,
                 locale_ids: None,
                 header_layout_uri: "".into(),
                 transport_settings,
@@ -773,8 +773,8 @@ impl WriterGroup {
         // Only one Datasets
         if self.ordering == DataSetOrderingType::AscendingWriterIdSingle || self.writer.len() == 1 {
             let mut v = Vec::new();
-            let szdsw = self.writer.len();
-            for w in 0..szdsw {
+            let sz_dsw = self.writer.len();
+            for w in 0..sz_dsw {
                 if let Some(x) = self.generate_msg(network_no, &[w], publisher_id, ds) {
                     // Chunk message
                     if self.max_network_message_size > 0
@@ -810,6 +810,10 @@ impl WriterGroup {
     pub fn add_dataset_writer(&mut self, dsw: DataSetWriter) {
         self.group_version = generate_version_time();
         self.writer.push(dsw);
+    }
+
+    pub fn get_dataset_writer(&self, id: u16) -> Option<&DataSetWriter>{
+        self.writer.iter().find(|ds| ds.dataset_writer_id == id)
     }
 }
 
@@ -909,7 +913,7 @@ impl WriterGroupBuilder {
             transport_settings: self.transport_settings.clone(),
             // MTU for ethernet
             max_network_message_size: 1472,
-            priorty: 126,
+            priority: 126,
             ordering: self.ordering,
         }
     }

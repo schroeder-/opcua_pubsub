@@ -6,13 +6,13 @@ use crate::reader::DataSetReader;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-/// Trait to recive subscribed values from a DataSetReader
-pub trait OnPubSubReciveValues {
-    /// Recived values from a DataSetReader
-    fn data_recived(&mut self, reader: &DataSetReader, dataset: &[UpdateTarget]);
+/// Trait to receive subscribed values from a DataSetReader
+pub trait OnPubSubReceiveValues {
+    /// Received values from a DataSetReader
+    fn data_received(&mut self, reader: &DataSetReader, dataset: &[UpdateTarget]);
 }
 
-/// Wrapper to wrap function and cloures to be consumed as OnPubReciveValues
+/// Wrapper to wrap function and closures to be consumed as OnPubReceiveValues
 /// ```
 /// use opcua_pubsub::prelude::*;
 /// let cb = OnReceiveValueFn::new_boxed(|reader, dataset|{
@@ -45,11 +45,11 @@ where
     }
 }
 
-impl<T> OnPubSubReciveValues for OnReceiveValueFn<T>
+impl<T> OnPubSubReceiveValues for OnReceiveValueFn<T>
 where
     T: Fn(&DataSetReader, &[UpdateTarget]) + Send,
 {
-    fn data_recived(&mut self, reader: &DataSetReader, dataset: &[UpdateTarget]) {
+    fn data_received(&mut self, reader: &DataSetReader, dataset: &[UpdateTarget]) {
         (self.recv).lock().unwrap()(reader, &dataset);
     }
 }
