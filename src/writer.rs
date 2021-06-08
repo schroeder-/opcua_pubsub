@@ -14,11 +14,7 @@ use chrono::Utc;
 use log::error;
 use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
-use opcua_types::{
-    BrokerDataSetWriterTransportDataType, DataSetOrderingType,
-    DatagramWriterGroupTransportDataType, DecodingOptions, Duration, ObjectTypeId,
-    UadpDataSetWriterMessageDataType, UadpWriterGroupMessageDataType,
-};
+use opcua_types::{BinaryEncoder, BrokerDataSetWriterTransportDataType, DataSetOrderingType, DatagramWriterGroupTransportDataType, DecodingOptions, Duration, EncodingResult, ObjectTypeId, UadpDataSetWriterMessageDataType, UadpWriterGroupMessageDataType};
 use opcua_types::{BrokerTransportQualityOfService, Guid};
 use opcua_types::{
     BrokerWriterGroupTransportDataType, ConfigurationVersionDataType, DataValue, Variant,
@@ -359,6 +355,7 @@ impl DataSetWriter {
                 .field_content_mask
                 .contains(DataSetFieldContentMask::RawData)
             {
+                error!("DeltaFrame for raw not supported");
                 None // @TODO Atm raw transport is not supported
             }
             // Generate a DeltaFrame with DataValue
@@ -417,7 +414,13 @@ impl DataSetWriter {
                 .field_content_mask
                 .contains(DataSetFieldContentMask::RawData)
             {
-                None // @TODO Not supported at the moment
+                Some(UadpMessageType::KeyFrameRaw(ds.into_iter().map(|(_, d)|{ 
+                    let mut data = Vec::new();    
+                    if let Some(v) = &d.value{
+                        to_raw(&mut data,v).unwrap_or_default();
+                    }
+                    data
+                }).collect()))
             }
             // Generate KeyFrame with DataValue
             else {
@@ -928,4 +931,53 @@ impl Default for WriterGroupBuilder {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn to_raw<Stream: std::io::Write>(stream: &mut Stream, var: &Variant) -> EncodingResult<usize>{
+    Ok(match var{
+        Variant::Empty =>{ 0_usize },
+        Variant::Boolean(v) => v.encode(stream)?,
+        Variant::SByte(v) => v.encode(stream)?,
+        Variant::Byte(v) => v.encode(stream)?,
+        Variant::Int16(v) => v.encode(stream)?,
+        Variant::UInt16(v) => v.encode(stream)?,
+        Variant::Int32(v) => v.encode(stream)?,
+        Variant::UInt32(v) => v.encode(stream)?,
+        Variant::Int64(v) => v.encode(stream)?,
+        Variant::UInt64(v) => v.encode(stream)?,
+        Variant::Float(v) => v.encode(stream)?,
+        Variant::Double(v) => v.encode(stream)?,
+        Variant::String(v) => v.encode(stream)?,
+        Variant::DateTime(v) => v.encode(stream)?,
+        Variant::Guid(v) => v.encode(stream)?,
+        Variant::StatusCode(v) => v.encode(stream)?,
+        Variant::ByteString(v) => v.encode(stream)?,
+        Variant::XmlElement(v) => v.encode(stream)?,
+        Variant::QualifiedName(v) => v.encode(stream)?,
+        Variant::LocalizedText(v) => v.encode(stream)?,
+        Variant::NodeId(v) => v.encode(stream)?,
+        Variant::ExpandedNodeId(v) => v.encode(stream)?,
+        Variant::ExtensionObject(v) => match &v.body{
+            opcua_types::ExtensionObjectEncoding::None => 0,
+            opcua_types::ExtensionObjectEncoding::ByteString(v) => v.encode(stream)?,
+            opcua_types::ExtensionObjectEncoding::XmlElement(v) => v.encode(stream)?,
+        }
+        Variant::Array(array) => {
+            let mut size = opcua_types::write_i32(stream, array.values.len() as i32)?;
+                for value in array.values.iter() {
+                    size += to_raw(stream, &value)?;
+                }
+                if array.has_dimensions() {
+                    // Note array dimensions are encoded as Int32 even though they are presented
+                    // as UInt32 through attribute.
+                    // Encode dimensions length
+                    size += opcua_types::write_i32(stream, array.dimensions.len() as i32)?;
+                    // Encode dimensions
+                    for dimension in &array.dimensions {
+                        size += opcua_types::write_i32(stream, *dimension as i32)?;
+                    }
+                }
+                size
+        }
+    })
 }
