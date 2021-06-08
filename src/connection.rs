@@ -5,15 +5,12 @@
 use crate::address_space::PubSubDataSourceT;
 use crate::callback::OnPubSubReceiveValues;
 use crate::dataset::{DataSetInfo, Promoted, PublishedDataSet};
+use crate::discovery::DiscoveryHandler;
 use crate::message::InformationType;
-use crate::message::ResponseType;
-use crate::message::UadpDataSetMetaDataResp;
-use crate::message::UadpDataSetWriterResp;
-use crate::message::UadpDiscoveryResponse;
+use crate::message::UadpDiscoveryRequest;
 use crate::message::UadpMessageChunkManager;
 use crate::message::UadpNetworkMessage;
 use crate::message::UadpPayload;
-use crate::message::UadpPublisherEndpointsResp;
 use crate::network::configuration::*;
 use crate::network::{
     ConnectionReceiver, Connections, MqttConnection, TransportSettings, UadpNetworkConnection,
@@ -21,20 +18,16 @@ use crate::network::{
 use crate::prelude::PubSubDataSource;
 use crate::prelude::SimpleAddressSpace;
 use crate::reader::ReaderGroup;
-use crate::writer::DataSetWriter;
 use crate::writer::WriterGroup;
 use log::{error, warn};
 use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
-use opcua_types::DataSetMetaDataType;
 use opcua_types::DecodingOptions;
 use opcua_types::EndpointDescription;
 use opcua_types::ExtensionObject;
 use opcua_types::ObjectId;
 use opcua_types::PubSubConnectionDataType;
-use opcua_types::WriterGroupDataType;
 use opcua_types::{ConfigurationVersionDataType, DataValue, Variant};
-use std::convert::TryFrom;
 use std::io::Cursor;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
@@ -66,9 +59,9 @@ pub struct PubSubConnection {
     data_source: Arc<RwLock<PubSubDataSourceT>>,
     value_recv: Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
     id: PubSubConnectionId,
-    discovery_network_message_no: u16,
     discovery_dechunk: UadpMessageChunkManager,
     endpoints: Vec<EndpointDescription>,
+    discovery: DiscoveryHandler,
 }
 
 pub struct PubSubReceiver {
@@ -85,20 +78,6 @@ impl PubSubReceiver {
         let msg = UadpNetworkMessage::decode(&mut stream, &decoding_options)?;
         Ok((topic, msg))
     }
-
-    /*pub fn run(&self, pubsub: Arc<RwLock<PubSubConnection>>) {
-        loop {
-            match self.receive_msg() {
-                Ok((topic, msg)) => {
-                    let mut ps = pubsub.write().unwrap();
-                    ps.handle_message(&topic.into(), msg, &Vec::new());
-                }
-                Err(err) => {
-                    warn!("UadpReceiver: error reading message {}!", err);
-                }
-            }
-        }
-    }*/
 
     pub fn recv_to_channel(&self, tx: Sender<ConnectionAction>, id: &PubSubConnectionId) {
         loop {
@@ -153,12 +132,12 @@ impl PubSubConnection {
             writer: Vec::new(),
             reader: Vec::new(),
             network_message_no: 0,
-            discovery_network_message_no: 0,
             data_source,
             value_recv,
             id: PubSubConnectionId(0),
             discovery_dechunk: UadpMessageChunkManager::new(0),
             endpoints: Vec::new(),
+            discovery: DiscoveryHandler::new(),
         })
     }
     /// add data value recv callback when values change
@@ -218,23 +197,9 @@ impl PubSubConnection {
                     }
                 }
                 UadpPayload::DiscoveryRequest(req) => {
-                    //@FIXME the specs say that discovery responses should be delayed 100-500 ms
-                    // and grouped into one if multiple arrive in this time frame. This is to limitation traffic
-                    match req.information_type() {
-                        InformationType::PublisherEndpoints => {
-                            self.send_discovery_endpoint(Some(self.endpoints.clone()));
-                        }
-                        InformationType::DataSetMetaData => {
-                            self.send_dataset_writer_cfg_response();
-                        }
-                        InformationType::DataSetWriter => {
-                            if let Some(_writer_ids) = req.dataset_writer_ids() {
-                                // @TODO get published dataset to writer
-                                //self.send_metadata_for_datasets(writer_ids);
-                            }
-                        }
-                    }
+                    self.discovery.handle_request(&req);
                 }
+                //@TODO interpreted response
                 UadpPayload::DiscoveryResponse(_) => {}
                 UadpPayload::None => {}
             }
@@ -311,26 +276,35 @@ impl PubSubConnection {
                 }
             }
         }
-        let ret = std::time::Duration::from_millis(500);
-        self.writer.iter().fold(ret, |a, w| a.min(w.next_tick()))
+        if self.discovery.has_endpoint_response() {
+            self.send_pending_discovery_endpoint(Some(self.endpoints.clone()));
+        }
+        if self.discovery.has_meta_response() {
+            self.send_pending_metadata(datasets);
+        }
+        if self.discovery.has_writer_response() {
+            self.send_pending_writer_response();
+        }
+        // Check next call
+        let next = std::time::Duration::from_millis(500);
+        let next = self.writer.iter().fold(next, |a, w| a.min(w.next_tick()));
+        self.discovery.get_next_time(next)
     }
 
     /// Sends all endpoints via pubsub only supported via UADP over ethernet or udp
-    pub fn send_discovery_endpoint(&mut self, endps: Option<Vec<EndpointDescription>>) {
-        let mut msg = UadpNetworkMessage::new();
-        msg.header.publisher_id = Some(self.publisher_id.clone());
-        let status = if endps.is_some() {
-            StatusCode::Good
-        } else {
-            StatusCode::BadNotImplemented
-        };
-        let response = UadpPublisherEndpointsResp::new(endps.clone(), status);
-        msg.payload = UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::new(
+    /// This is async
+    pub fn send_discovery_endpoint(&mut self) {
+        self.discovery.handle_request(&UadpDiscoveryRequest::new(
             InformationType::PublisherEndpoints,
-            self.discovery_network_message_no,
-            ResponseType::PublisherEndpoints(response),
-        )));
-        self.discovery_network_message_no = self.discovery_network_message_no.wrapping_add(1);
+            None,
+        ))
+    }
+
+    /// Sends all pending endpoint responses
+    fn send_pending_discovery_endpoint(&mut self, endps: Option<Vec<EndpointDescription>>) {
+        let msg = self
+            .discovery
+            .generate_endpoint_response(self.publisher_id.clone(), endps);
         let mut c = Vec::new();
         match msg.encode(&mut c) {
             Ok(_) => {
@@ -346,144 +320,54 @@ impl PubSubConnection {
             }
         }
     }
-    /// Sends all Meta Data for datasets in list if found else send StatusCode bad
-    pub fn send_metadata_for_datasets(&mut self, datasets: &[u16], dss: Vec<&PublishedDataSet>) {
-        let mut offset = 0;
-        for w in self.writer.iter() {
-            offset = datasets
-                .iter()
-                .map(|id| (id, w.get_dataset_writer(*id)))
-                .fold(offset, |i, (id, d)| {
-                    self.send_metadata(*id, d, &dss, i);
-                    i + 1
-                });
-        }
-        self.update_discovery_network_no(u16::try_from(offset).unwrap_or(0));
-    }
-
-    /// Sends Meta Data for a dataset if ds_writer is empty send status code bad
-    /// for example DatasetWriter id doesn't exist
-    pub fn send_metadata(
-        &self,
-        ds_writer_id: u16,
-        ds_writer: Option<&DataSetWriter>,
-        dss: &Vec<&PublishedDataSet>,
-        offset: u16,
-    ) {
-        let mut msg = UadpNetworkMessage::new();
-        msg.header.publisher_id = Some(self.publisher_id.clone());
-        let mut status = if ds_writer.is_some() {
-            StatusCode::Good
-        } else {
-            StatusCode::BadNotImplemented
-        };
-        let meta_data = DataSetMetaDataType {
-            namespaces: None,
-            structure_data_types: None,
-            enum_data_types: None,
-            simple_data_types: None,
-            name: UAString::null(),
-            description: "".into(),
-            fields: None,
-            data_set_class_id: opcua_types::Guid::null(),
-            configuration_version: ConfigurationVersionDataType {
-                major_version: 0,
-                minor_version: 0,
-            },
-        };
-        let (meta_data, transport) = if let Some(dsw) = ds_writer {
-            let ds_name = &dsw.dataset_name;
-            if let Some(ds) = dss.iter().find(|d| &d.name == ds_name) {
-                (ds.generate_meta_data(), dsw.transport_settings())
-            } else {
-                status = StatusCode::BadNoData;
-                (meta_data, &TransportSettings::None)
-            }
-        } else {
-            (meta_data, &TransportSettings::None)
-        };
-        let response = UadpDataSetMetaDataResp::new(ds_writer_id, meta_data, status);
-        msg.payload = UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::new(
-            InformationType::DataSetMetaData,
-            self.discovery_network_message_no + offset,
-            ResponseType::DataSetMetaData(response),
-        )));
-        let mut c = Vec::new();
-        match msg.encode(&mut c) {
-            Ok(_) => {
-                if let Err(err) = self.connection.send(&c, transport) {
-                    error!("Uadp error sending discovery message - {:?}", err);
-                }
-            }
-            Err(err) => {
-                error!(
-                    "Uadp error decoding message DiscoveryResponse get endpoints - {}",
-                    err
-                );
-            }
-        }
-    }
-
-    fn update_discovery_network_no(&mut self, val: u16) {
-        self.discovery_network_message_no = self.discovery_network_message_no.wrapping_add(val);
-    }
-
-    /// Create the message for writer cfg, the offset is to workaround borrowing as mut
-    fn send_ds_writer_cfg_internal(
-        &self,
-        cfg: WriterGroupDataType,
-        writer: Vec<u16>,
-        transport_settings: &TransportSettings,
-        seq_offset: u16,
-    ) {
-        let mut msg = UadpNetworkMessage::new();
-        msg.header.publisher_id = Some(self.publisher_id.clone());
-        let status = vec![StatusCode::Good; writer.len()];
-        let response = UadpDataSetWriterResp::new(Some(writer), cfg, Some(status));
-        msg.payload = UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::new(
-            InformationType::DataSetWriter,
-            self.discovery_network_message_no.wrapping_add(seq_offset),
-            ResponseType::DataSetWriter(response),
-        )));
-        let mut c = Vec::new();
-        match msg.encode(&mut c) {
-            Ok(_) => {
-                if let Err(err) = self.connection.send(&c, transport_settings) {
-                    error!("Uadp error sending discovery message - {:?}", err);
-                }
-            }
-            Err(err) => {
-                error!(
-                    "Uadp error decoding message DiscoveryRespons get endpoints - {}",
-                    err
-                );
-            }
-        }
-    }
-
-    fn send_dataset_writer_cfg_response(&mut self) {
-        let off = self
+    /// Sends pending metadata
+    fn send_pending_metadata(&mut self, datasets: &[PublishedDataSet]) {
+        let writer: Vec<_> = self
             .writer
             .iter()
-            .enumerate()
-            .fold(0, |_, (offset, writer_g)| {
-                let (cfg, writer) = writer_g.generate_info();
-                self.send_ds_writer_cfg_internal(
-                    cfg,
-                    writer,
-                    writer_g.transport_settings(),
-                    u16::try_from(offset).unwrap_or(0),
-                );
-                offset
-            });
-        self.update_discovery_network_no(u16::try_from(off).unwrap_or(0));
+            .map(|w| w.writer())
+            .fold(Vec::new(), |v, w| [v, w].concat());
+        let msgs =
+            self.discovery
+                .generate_meta_responses(self.publisher_id.clone(), writer, datasets);
+        for (msg, transport) in msgs {
+            let mut c = Vec::new();
+            match msg.encode(&mut c) {
+                Ok(_) => {
+                    if let Err(err) = self.connection.send(&c, transport) {
+                        error!("Uadp error sending discovery message - {:?}", err);
+                    }
+                }
+                Err(err) => {
+                    error!(
+                        "Uadp error decoding message DiscoveryResponse get endpoints - {}",
+                        err
+                    );
+                }
+            }
+        }
+    }
+    /// Sends all Meta Data for datasets in list if found else send StatusCode bad
+    /// This is async
+    pub fn send_metadata_for_datasets(&mut self, datasets: Option<Vec<u16>>) {
+        self.discovery.handle_request(&UadpDiscoveryRequest::new(
+            InformationType::DataSetMetaData,
+            datasets,
+        ))
     }
 
-    /// Sends WriterGroup Data
-    pub fn send_dataset_writer_cfg(&mut self, writer_g: &WriterGroup) {
-        let (cfg, writer) = writer_g.generate_info();
-        self.send_ds_writer_cfg_internal(cfg, writer, writer_g.transport_settings(), 0);
-        self.update_discovery_network_no(1);
+    fn send_pending_writer_response(&mut self) {
+        self.discovery
+            .generate_writer_response(&self.publisher_id, self.writer.iter().collect());
+    }
+
+    /// Sends Write Config
+    pub fn send_dataset_writer_cfg(&mut self) {
+        //@FixMe atm all WriterGroup Configs are send
+        self.discovery.handle_request(&UadpDiscoveryRequest::new(
+            InformationType::DataSetMetaData,
+            Some(vec![0u16]),
+        ))
     }
 
     fn internal_update(&mut self, cfg: &PubSubConnectionDataType) -> Result<(), StatusCode> {

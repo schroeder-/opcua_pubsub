@@ -7,6 +7,7 @@ pub mod callback;
 pub mod connection;
 pub mod constants;
 pub mod dataset;
+mod discovery;
 pub mod message;
 mod network;
 pub mod reader;

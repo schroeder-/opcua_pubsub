@@ -30,7 +30,7 @@ fn main() -> Result<(), StatusCode> {
             ds.set_value(&NodeId::new(0, 2258), DataValue::new_now(DateTime::now()));
             if i % 100 == 0 {
                 ds.set_value(
-                    &NodeId::new(1, "BoolToogle"),
+                    &NodeId::new(1, "BoolToggle"),
                     DataValue::new_now(rng.gen::<bool>()),
                 );
                 ds.set_value(

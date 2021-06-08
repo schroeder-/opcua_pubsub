@@ -815,6 +815,11 @@ impl WriterGroup {
     pub fn get_dataset_writer(&self, id: u16) -> Option<&DataSetWriter> {
         self.writer.iter().find(|ds| ds.dataset_writer_id == id)
     }
+
+    /// Get a reference to the writer group's writer.
+    pub fn writer(&self) -> Vec<&DataSetWriter> {
+        self.writer.iter().collect()
+    }
 }
 
 pub struct WriterGroupBuilder {
