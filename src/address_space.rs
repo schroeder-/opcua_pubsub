@@ -37,7 +37,7 @@ pub struct SimpleAddressSpace {
 impl SimpleAddressSpace {
     /// Generates a empty AddressSpace
     pub fn new() -> Self {
-        SimpleAddressSpace {
+        Self {
             node_map: HashMap::new(),
         }
     }
@@ -55,7 +55,7 @@ impl SimpleAddressSpace {
     }
     /// get a boxed empty addressspace
     pub fn new_arc_lock() -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(SimpleAddressSpace::new()))
+        Arc::new(RwLock::new(Self::new()))
     }
 }
 

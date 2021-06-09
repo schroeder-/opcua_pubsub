@@ -41,8 +41,8 @@ pub struct DataSetReaderBuilder {
     transport_settings: ReaderTransportSettings,
 }
 
-/// DataSetReader targets a publisher and the dataset
-/// if publisher_id = Variant::Empty every publisher is read
+/// `DataSetReader` targets a publisher and the dataset
+/// if `publisher_id` = `Variant::Empty` every publisher is read
 pub struct DataSetReader {
     name: UAString,
     publisher_id: Variant,
@@ -56,7 +56,7 @@ pub struct DataSetReader {
 
 impl DataSetReaderBuilder {
     pub fn new() -> Self {
-        DataSetReaderBuilder {
+        Self {
             name: "DataSet Reader".into(),
             publisher_id: Variant::Empty,
             writer_group_id: 0_u16,
@@ -70,7 +70,7 @@ impl DataSetReaderBuilder {
         meta_topic: &UAString,
         qos: opcua_types::BrokerTransportQualityOfService,
     ) -> Self {
-        DataSetReaderBuilder {
+        Self {
             name: "DataSet Reader".into(),
             publisher_id: Variant::Empty,
             writer_group_id: 0_u16,
@@ -96,12 +96,12 @@ impl DataSetReaderBuilder {
         self.publisher_id = pub_id;
         self
     }
-    /// Sets the targeted writer_group_id
+    /// Sets the targeted `writer_group_id`
     pub fn writer_group_id(&mut self, writer_group_id: u16) -> &mut Self {
         self.writer_group_id = writer_group_id;
         self
     }
-    /// Sets the targeted dataset_writer
+    /// Sets the targeted `dataset_writer`
     pub fn dataset_writer_id(&mut self, dataset_writer_id: u16) -> &mut Self {
         self.dataset_writer_id = dataset_writer_id;
         self
@@ -128,8 +128,8 @@ impl Default for DataSetReaderBuilder {
 }
 
 impl ReaderGroup {
-    pub fn new(name: UAString) -> Self {
-        ReaderGroup {
+    pub const fn new(name: UAString) -> Self {
+        Self {
             name,
             reader: Vec::new(),
         }
@@ -146,12 +146,17 @@ impl ReaderGroup {
             group_properties: None,
             transport_settings: ExtensionObject::null(),
             message_settings: ExtensionObject::null(),
-            data_set_readers: Some(self.reader.iter().map(|r| r.generate_cfg()).collect()),
+            data_set_readers: Some(
+                self.reader
+                    .iter()
+                    .map(DataSetReader::generate_cfg)
+                    .collect(),
+            ),
         }
     }
 
     pub fn from_cfg(cfg: &ReaderGroupDataType) -> Result<Self, StatusCode> {
-        let mut s = ReaderGroup::new(cfg.name.clone());
+        let mut s = Self::new(cfg.name.clone());
         s.update(cfg)?;
         Ok(s)
     }
@@ -175,7 +180,10 @@ impl ReaderGroup {
 
     /// Loads all transport settings to sub, this is needed for broker support
     pub fn get_transport_cfg(&self) -> Vec<&ReaderTransportSettings> {
-        self.reader.iter().map(|r| r.transport_settings()).collect()
+        self.reader
+            .iter()
+            .map(DataSetReader::transport_settings)
+            .collect()
     }
 
     /// Check the message and forward it to the datasets
@@ -187,7 +195,7 @@ impl ReaderGroup {
         cb: &Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
     ) {
         for r in self.reader.iter_mut() {
-            r.handle_message(topic, msg, &data_source, cb);
+            r.handle_message(topic, msg, data_source, cb);
         }
     }
     /// Adds Dataset to the group
@@ -234,7 +242,7 @@ impl DataSetReader {
     }
 
     pub fn from_cfg(cfg: &DataSetReaderDataType) -> Result<Self, StatusCode> {
-        let mut s = DataSetReader {
+        let mut s = Self {
             name: cfg.name.clone(),
             publisher_id: cfg.publisher_id.clone(),
             writer_group_id: cfg.writer_group_id,
@@ -353,7 +361,7 @@ impl DataSetReader {
                     let mut cb = cb.lock().unwrap();
                     cb.data_received(self, &res);
                 }
-                self.sub_data_set.update_targets(res, &data_source);
+                self.sub_data_set.update_targets(res, data_source);
             }
         }
     }
@@ -362,14 +370,15 @@ impl DataSetReader {
         let mut ret = Vec::new();
         let server_t = DateTime::now();
         let status = match ds.header.status {
-            Some(s) => StatusCode::from_u32(s as u32).unwrap_or(StatusCode::Good),
+            Some(s) => StatusCode::from_u32(u32::from(s)).unwrap_or(StatusCode::Good),
             None => StatusCode::Good,
         };
-        let source_t = if let Some(dt) = &ds.header.time_stamp {
-            *dt
-        } else {
-            DateTime::now()
-        };
+
+        let source_t = ds
+            .header
+            .time_stamp
+            .as_ref()
+            .map_or_else(DateTime::now, |dt| *dt);
 
         match &ds.data {
             UadpMessageType::KeyDeltaFrameRaw(_) => {
@@ -478,11 +487,11 @@ impl DataSetReader {
         &mut self.sub_data_set
     }
 
-    pub fn name(&self) -> &UAString {
+    pub const fn name(&self) -> &UAString {
         &self.name
     }
 
-    pub fn transport_settings(&self) -> &ReaderTransportSettings {
+    pub const fn transport_settings(&self) -> &ReaderTransportSettings {
         &self.transport_settings
     }
 }

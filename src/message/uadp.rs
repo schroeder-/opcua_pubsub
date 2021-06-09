@@ -48,7 +48,7 @@ impl MessageHeaderFlags {
     const PROMOTEDFIELDS: u32 = 0b000100000000000000000; //Promoted fields can only be sent if the NetworkMessage contains only one DataSetMessage.
     const DISCOVERYREQUEST: u32 = 0b001000000000000000000;
     const DISCOVERYRESPONSE: u32 = 0b010000000000000000000;
-    fn contains(&self, val: u32) -> bool {
+    const fn contains(&self, val: u32) -> bool {
         self.0 & val == val
     }
 }
@@ -81,7 +81,7 @@ impl MessageDataSetFlags {
     const KEEP_ALIVE: u16 = 0b0000001100000000;
     const TIMESTAMP: u16 = 0b0001000000000000;
     const PICOSECONDS: u16 = 0b0010000000000000;
-    fn contains(&self, val: u16) -> bool {
+    const fn contains(&self, val: u16) -> bool {
         self.0 & val == val
     }
 }
@@ -135,7 +135,7 @@ impl UadpChunk {
         let total_size = read_u32(stream)?;
         let mut chunk_data = Vec::new();
         process_decode_io_result(stream.read_to_end(&mut chunk_data))?;
-        Ok(UadpChunk {
+        Ok(Self {
             message_sequence_no,
             chunk_offset,
             total_size,
@@ -144,7 +144,7 @@ impl UadpChunk {
     }
 }
 
-/// https://reference.opcfoundation.org/v104/Core/docs/Part4/7.38/
+/// <https://reference.opcfoundation.org/v104/Core/docs/Part4/7.38/>
 /// UInt32 as seconds since the year 2000. It is used for representing Version changes
 type VersionTime = u32;
 type UadpDataSetPayload = [u16];
@@ -204,7 +204,7 @@ pub struct UadpPublisherEndpointsResp {
 }
 
 impl UadpPublisherEndpointsResp {
-    pub fn new(endpoints: Option<Vec<EndpointDescription>>, status: StatusCode) -> Self {
+    pub const fn new(endpoints: Option<Vec<EndpointDescription>>, status: StatusCode) -> Self {
         Self { endpoints, status }
     }
 
@@ -239,7 +239,11 @@ pub struct UadpDataSetMetaDataResp {
 }
 
 impl UadpDataSetMetaDataResp {
-    pub fn new(dataset_writer_id: u16, meta_data: DataSetMetaDataType, status: StatusCode) -> Self {
+    pub const fn new(
+        dataset_writer_id: u16,
+        meta_data: DataSetMetaDataType,
+        status: StatusCode,
+    ) -> Self {
         Self {
             dataset_writer_id,
             meta_data,
@@ -285,7 +289,7 @@ pub struct UadpDataSetWriterResp {
 }
 
 impl UadpDataSetWriterResp {
-    pub fn new(
+    pub const fn new(
         dataset_writer_ids: Option<Vec<u16>>,
         dataset_writer_config: WriterGroupDataType,
         status: Option<Vec<StatusCode>>,
@@ -354,7 +358,7 @@ pub struct UadpDiscoveryResponse {
 }
 
 impl UadpDiscoveryResponse {
-    pub fn new(
+    pub const fn new(
         information_type: InformationType,
         sequence_number: u16,
         response: ResponseType,
@@ -422,7 +426,10 @@ impl UadpDiscoveryResponse {
 }
 
 impl UadpDiscoveryRequest {
-    pub fn new(information_type: InformationType, dataset_writer_ids: Option<Vec<u16>>) -> Self {
+    pub const fn new(
+        information_type: InformationType,
+        dataset_writer_ids: Option<Vec<u16>>,
+    ) -> Self {
         Self {
             information_type,
             dataset_writer_ids,
@@ -469,12 +476,12 @@ impl UadpDiscoveryRequest {
     }
 
     /// Get a reference to the uadp discovery request's information type.
-    pub fn information_type(&self) -> &InformationType {
+    pub const fn information_type(&self) -> &InformationType {
         &self.information_type
     }
 
     /// Get a reference to the uadp discovery request's dataset writer ids.
-    pub fn dataset_writer_ids(&self) -> Option<&Vec<u16>> {
+    pub const fn dataset_writer_ids(&self) -> Option<&Vec<u16>> {
         self.dataset_writer_ids.as_ref()
     }
 }
@@ -597,7 +604,7 @@ impl UadpHeader {
         Ok(sz)
     }
 
-    fn decode<S: Read>(c: &mut S, limits: &DecodingOptions) -> EncodingResult<UadpHeader> {
+    fn decode<S: Read>(c: &mut S, limits: &DecodingOptions) -> EncodingResult<Self> {
         let h1 = read_u8(c)?;
         let bitmaskv: u8 = 1 << 0 | 1 << 1 | 1 << 2 | 1 << 3;
         let version: u8 = h1 & bitmaskv;
@@ -633,7 +640,7 @@ impl UadpHeader {
         } else {
             None
         };
-        Ok(UadpHeader {
+        Ok(Self {
             publisher_id,
             dataset_class_id,
             flags: f,
@@ -648,8 +655,8 @@ impl Default for UadpGroupHeader {
 }
 
 impl UadpGroupHeader {
-    pub fn new() -> Self {
-        UadpGroupHeader {
+    pub const fn new() -> Self {
+        Self {
             group_version: None,
             network_message_no: None,
             sequence_no: None,
@@ -657,7 +664,7 @@ impl UadpGroupHeader {
         }
     }
 
-    fn byte_len(&self) -> usize {
+    const fn byte_len(&self) -> usize {
         let mut sz = 1;
         sz += match self.writer_group_id {
             Some(_) => 2,
@@ -712,7 +719,7 @@ impl UadpGroupHeader {
         Ok(sz)
     }
 
-    fn decode<S: Read>(c: &mut S, _limits: &DecodingOptions) -> EncodingResult<UadpGroupHeader> {
+    fn decode<S: Read>(c: &mut S, _limits: &DecodingOptions) -> EncodingResult<Self> {
         let flags = read_u8(c)?;
         let writer_group_id = if flags & MessageGroupHeaderFlags::WRITER_GROUP_ID_EN != 0 {
             Some(read_u16(c)?)
@@ -735,7 +742,7 @@ impl UadpGroupHeader {
         } else {
             None
         };
-        Ok(UadpGroupHeader {
+        Ok(Self {
             writer_group_id,
             group_version,
             network_message_no,
@@ -745,7 +752,7 @@ impl UadpGroupHeader {
 }
 
 impl UadpDataSetMessageHeader {
-    fn generate_flags(&self, dt: &UadpMessageType) -> u16 {
+    const fn generate_flags(&self, dt: &UadpMessageType) -> u16 {
         let mut flags: u16 = if self.valid {
             MessageDataSetFlags::VALID
         } else {
@@ -853,7 +860,7 @@ impl UadpDataSetMessageHeader {
     fn decode<S: Read>(
         c: &mut S,
         decoding_options: &DecodingOptions,
-    ) -> EncodingResult<(UadpDataSetMessageHeader, MessageDataSetFlags)> {
+    ) -> EncodingResult<(Self, MessageDataSetFlags)> {
         let mut flags = read_u8(c)? as u16;
         if flags & MessageDataSetFlags::FLAGS2 != 0 {
             flags += (read_u8(c)? as u16) << 8;
@@ -865,7 +872,7 @@ impl UadpDataSetMessageHeader {
             None
         };
         let time_stamp = if flags & MessageDataSetFlags::TIMESTAMP != 0 {
-            Some(opcua_types::DateTime::decode(c, &decoding_options)?)
+            Some(opcua_types::DateTime::decode(c, decoding_options)?)
         } else {
             None
         };
@@ -890,7 +897,7 @@ impl UadpDataSetMessageHeader {
             None
         };
         Ok((
-            UadpDataSetMessageHeader {
+            Self {
                 valid,
                 sequence_no,
                 time_stamp,
@@ -1001,7 +1008,7 @@ impl UadpMessageType {
                 for _ in 0..count {
                     data.push((read_u16(c)?, DataValue::decode(c, decoding_options)?));
                 }
-                Ok(UadpMessageType::KeyDeltaFrameValue(data))
+                Ok(Self::KeyDeltaFrameValue(data))
             } else if flags.contains(MessageDataSetFlags::RAW_DATA) {
                 let mut data = Vec::with_capacity(count);
                 for x in 0..count as usize {
@@ -1017,13 +1024,13 @@ impl UadpMessageType {
                     process_decode_io_result(result)?;
                     data.push((id, raw));
                 }
-                Ok(UadpMessageType::KeyDeltaFrameRaw(data))
+                Ok(Self::KeyDeltaFrameRaw(data))
             } else {
                 let mut data = Vec::with_capacity(count);
                 for _ in 0..count {
                     data.push((read_u16(c)?, Variant::decode(c, decoding_options)?));
                 }
-                Ok(UadpMessageType::KeyDeltaFrameVariant(data))
+                Ok(Self::KeyDeltaFrameVariant(data))
             }
         } else if flags.contains(MessageDataSetFlags::EVENT) {
             let count = read_u16(c)? as usize;
@@ -1031,17 +1038,17 @@ impl UadpMessageType {
             for _ in 0..count {
                 data.push(Variant::decode(c, decoding_options)?);
             }
-            Ok(UadpMessageType::Event(data))
+            Ok(Self::Event(data))
         } else if flags.contains(MessageDataSetFlags::KEEP_ALIVE) {
             trace!("UadpKeepAlive Message");
-            Ok(UadpMessageType::KeepAlive)
+            Ok(Self::KeepAlive)
         } else if flags.contains(MessageDataSetFlags::DATA_VALUE) {
             let count = read_u16(c)? as usize;
             let mut data = Vec::with_capacity(count);
             for _ in 0..count {
                 data.push(DataValue::decode(c, decoding_options)?);
             }
-            Ok(UadpMessageType::KeyFrameDataValue(data))
+            Ok(Self::KeyFrameDataValue(data))
         } else if flags.contains(MessageDataSetFlags::RAW_DATA) {
             let count = read_u16(c)? as usize;
             let mut data = Vec::with_capacity(count);
@@ -1057,21 +1064,21 @@ impl UadpMessageType {
                 process_decode_io_result(result)?;
                 data.push(raw);
             }
-            Ok(UadpMessageType::KeyFrameRaw(data))
+            Ok(Self::KeyFrameRaw(data))
         } else {
             let count = read_u16(c)? as usize;
             let mut data = Vec::with_capacity(count);
             for _ in 0..count {
                 data.push(Variant::decode(c, decoding_options)?);
             }
-            Ok(UadpMessageType::KeyFrameVariant(data))
+            Ok(Self::KeyFrameVariant(data))
         }
     }
 }
 
 impl UadpDataSetMessage {
     /// creates a new dataset message that is valid and doesn't contain an value
-    pub fn new(message: UadpMessageType) -> Self {
+    pub const fn new(message: UadpMessageType) -> Self {
         let header = UadpDataSetMessageHeader {
             valid: true,
             sequence_no: None,
@@ -1081,7 +1088,7 @@ impl UadpDataSetMessage {
             cfg_major_version: None,
             cfg_minor_version: None,
         };
-        UadpDataSetMessage {
+        Self {
             header,
             data: message,
         }
@@ -1103,10 +1110,10 @@ impl UadpDataSetMessage {
         c: &mut S,
         decoding_options: &DecodingOptions,
         pay_head: &UadpDataSetPayload,
-    ) -> EncodingResult<UadpDataSetMessage> {
+    ) -> EncodingResult<Self> {
         let (header, flags) = UadpDataSetMessageHeader::decode(c, decoding_options)?;
         let data = UadpMessageType::decode(c, decoding_options, flags, pay_head)?;
-        Ok(UadpDataSetMessage { header, data })
+        Ok(Self { header, data })
     }
 }
 
@@ -1132,7 +1139,7 @@ pub struct UadpNetworkMessage {
 
 impl UadpNetworkMessage {
     /// creates an empty uadp network message
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         let promoted_fields = Vec::new();
         let picoseconds = None;
         let timestamp = None;
@@ -1143,7 +1150,7 @@ impl UadpNetworkMessage {
             publisher_id: None,
             flags: MessageHeaderFlags(0),
         };
-        UadpNetworkMessage {
+        Self {
             header,
             group_header,
             dataset_payload,
@@ -1154,11 +1161,11 @@ impl UadpNetworkMessage {
         }
     }
 
-    pub fn is_chunk(&self) -> bool {
+    pub const fn is_chunk(&self) -> bool {
         matches!(&self.payload, UadpPayload::Chunk(_))
     }
 
-    pub fn is_discovery(&self) -> bool {
+    pub const fn is_discovery(&self) -> bool {
         match &self.payload {
             UadpPayload::DataSets(_) => false,
             UadpPayload::DiscoveryRequest(_) | UadpPayload::DiscoveryResponse(_) => true,
@@ -1365,7 +1372,7 @@ impl UadpNetworkMessage {
             }
             UadpPayload::DataSets(v)
         };
-        Ok(UadpNetworkMessage {
+        Ok(Self {
             header,
             group_header,
             dataset_payload,
@@ -1424,7 +1431,7 @@ impl UadpNetworkMessage {
             let total = data.len() as u32;
             let mut vec = Vec::new();
             for (i, chunk) in data.chunks(chunk_sz).enumerate() {
-                vec.push(UadpNetworkMessage {
+                vec.push(Self {
                     header: self.header.clone(),
                     group_header: self.group_header.clone(),
                     dataset_payload: vec![payload_header],
@@ -1480,7 +1487,7 @@ impl UadpNetworkMessage {
     }
     // Dechunk from a msg and uadpchunks
     pub fn dechunk_msg(&self, parts: Vec<UadpChunk>) -> Result<Self, StatusCode> {
-        let ret = UadpNetworkMessage {
+        let ret = Self {
             header: self.header.clone(),
             group_header: self.group_header.clone(),
             dataset_payload: self.dataset_payload.clone(),
@@ -1516,7 +1523,7 @@ impl UadpNetworkMessage {
             }
         }
         let msg1 = msgs.first().unwrap();
-        let ret = UadpNetworkMessage {
+        let ret = Self {
             header: msg1.header.clone(),
             group_header: msg1.group_header.clone(),
             dataset_payload: msg1.dataset_payload.clone(),
@@ -1555,8 +1562,8 @@ fn is_sequence_newer(sequence_no: u16, last_sequence_no: u16) -> bool {
 }
 
 impl UadpMessageChunkManager {
-    pub fn new(dataset_id: u16) -> Self {
-        UadpMessageChunkManager {
+    pub const fn new(dataset_id: u16) -> Self {
+        Self {
             messages: Vec::new(),
             last_sequence_no: u16::MAX,
             dataset_id,

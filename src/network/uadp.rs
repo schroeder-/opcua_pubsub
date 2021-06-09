@@ -54,7 +54,7 @@ impl UadpNetworkConnection {
             Ok(a) => a,
         };
         let send_socket = new_sender(&addr)?;
-        Ok(UadpNetworkConnection {
+        Ok(Self {
             send_socket,
             addr,
             addr2: socket2::SockAddr::from(addr),
@@ -74,7 +74,7 @@ impl UadpNetworkConnection {
 
 /// On Windows, unlike all Unix variants, it is improper to bind to the multicast address
 ///
-/// see https://msdn.microsoft.com/en-us/library/windows/desktop/ms737550(v=vs.85).aspx
+/// see <https://msdn.microsoft.com/en-us/library/windows/desktop/ms737550(v=vs.85).aspx>
 #[cfg(windows)]
 fn bind_multicast(socket: &Socket, addr: &SocketAddr) -> io::Result<()> {
     socket.set_reuse_address(true)?;

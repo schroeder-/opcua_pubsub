@@ -28,13 +28,14 @@ impl ConnectionConfig {
             &DecodingOptions::default(),
         )?;
         match PubSubTransportProfil::from(&cfg.transport_profile_uri) {
-            PubSubTransportProfil::UdpUadp => Ok(ConnectionConfig::Uadp(UadpConfig::new_with_if(
+            PubSubTransportProfil::UdpUadp => Ok(Self::Uadp(UadpConfig::new_with_if(
                 net.url,
                 net.network_interface,
             ))),
-            PubSubTransportProfil::MqttUadp => Ok(ConnectionConfig::Mqtt(
-                MqttConfig::new_from_probs(net.url, &cfg.connection_properties),
-            )),
+            PubSubTransportProfil::MqttUadp => Ok(Self::Mqtt(MqttConfig::new_from_probs(
+                net.url,
+                &cfg.connection_properties,
+            ))),
             PubSubTransportProfil::AmqpUadp
             | PubSubTransportProfil::MqttJson
             | PubSubTransportProfil::AmqpJson
@@ -43,7 +44,7 @@ impl ConnectionConfig {
         }
     }
 
-    pub fn get_transport_profile(&self) -> PubSubTransportProfil {
+    pub const fn get_transport_profile(&self) -> PubSubTransportProfil {
         match self {
             ConnectionConfig::Uadp(_) => PubSubTransportProfil::UdpUadp,
             ConnectionConfig::Mqtt(_) => PubSubTransportProfil::MqttUadp,
@@ -72,13 +73,13 @@ impl ConnectionConfig {
 
 impl From<UadpConfig> for ConnectionConfig {
     fn from(ua: UadpConfig) -> Self {
-        ConnectionConfig::Uadp(ua)
+        Self::Uadp(ua)
     }
 }
 
 impl From<MqttConfig> for ConnectionConfig {
     fn from(ua: MqttConfig) -> Self {
-        ConnectionConfig::Mqtt(ua)
+        Self::Mqtt(ua)
     }
 }
 /// Configures a Uadp Connection
@@ -98,12 +99,12 @@ pub enum MqttVersion {
 }
 
 impl MqttVersion {
-    fn try_from_i32(value: i32) -> Option<MqttVersion> {
+    const fn try_from_i32(value: i32) -> Option<Self> {
         Some(match value {
-            0 => MqttVersion::All,
-            3 => MqttVersion::OnlyV3_1,
-            4 => MqttVersion::OnlyV3_1_1,
-            5 => MqttVersion::OnlyV5,
+            0 => Self::All,
+            3 => Self::OnlyV3_1,
+            4 => Self::OnlyV3_1_1,
+            5 => Self::OnlyV5,
             _ => return None,
         })
     }
@@ -119,38 +120,40 @@ pub struct MqttConfig {
 }
 
 impl UadpConfig {
-    /// new UadpConfig
-    /// url example: opc.udp://239.0.0.1:4840
-    pub fn new(url: UAString) -> Self {
-        UadpConfig {
+    /// new `UadpConfig`
+    /// ```
+    /// let cfg = UadpConfig::new("opc.udp://239.0.0.1:4840".into());
+    /// ```
+    pub const fn new(url: UAString) -> Self {
+        Self {
             network_if: None,
             url,
         }
     }
-    /// new UadpConfig with Network interface
-    /// example:
-    /// url: opc.udp://239.0.0.1:4840
-    /// network_if: "127.0.0.1"
-    pub fn new_with_if(url: UAString, network_if: UAString) -> Self {
-        UadpConfig {
+    /// new `UadpConfig` with Network interface
+    /// ```
+    /// let cfg = UadpConfig::new_with_if("127.0.0.1".into(), "opc.udp://239.0.0.1:4840".into());
+    /// ```
+    #[must_use]
+    pub const fn new_with_if(url: UAString, network_if: UAString) -> Self {
+        Self {
             network_if: Some(network_if),
             url,
         }
     }
 
     pub fn network_if(&self) -> UAString {
-        if let Some(s) = &self.network_if {
-            s.clone()
-        } else {
-            UAString::null()
-        }
+        self.network_if
+            .as_ref()
+            .map_or_else(UAString::null, |s| s.clone())
     }
-
-    pub fn url(&self) -> &UAString {
+    #[must_use]
+    pub const fn url(&self) -> &UAString {
         &self.url
     }
 
-    pub fn profile(self) -> PubSubTransportProfil {
+    #[must_use]
+    pub const fn profile(&self) -> PubSubTransportProfil {
         PubSubTransportProfil::UdpUadp
     }
 
@@ -181,10 +184,10 @@ impl UadpConfig {
 }
 
 impl MqttConfig {
-    /// new UadpConfig
+    /// new `UadpConfig`
     /// url example: opc.udp://239.0.0.1:4840
     pub fn new(url: UAString) -> Self {
-        MqttConfig {
+        Self {
             url,
             username: UAString::null(),
             password: UAString::null(),
@@ -244,11 +247,11 @@ impl MqttConfig {
         mq
     }
 
-    pub fn url(&self) -> &UAString {
+    pub const fn url(&self) -> &UAString {
         &self.url
     }
 
-    pub fn profile(self) -> PubSubTransportProfil {
+    pub const fn profile(&self) -> PubSubTransportProfil {
         PubSubTransportProfil::MqttUadp
     }
 

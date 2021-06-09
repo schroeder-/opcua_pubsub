@@ -34,8 +34,8 @@ pub struct PubSubApp {
 }
 
 impl PubSubApp {
-    pub fn new() -> Self {
-        PubSubApp {
+    pub const fn new() -> Self {
+        Self {
             connections: Vec::new(),
             datasets: Vec::new(),
             // start with 1 because zero => not set
@@ -344,7 +344,7 @@ impl PubSubApp {
 
 impl Default for PubSubApp {
     fn default() -> Self {
-        PubSubApp::new()
+        Self::new()
     }
 }
 

@@ -1,6 +1,8 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
+#![warn(clippy::all)] //, clippy::pedantic, clippy::nursery)]
+
 pub mod address_space;
 pub mod app;
 pub mod callback;

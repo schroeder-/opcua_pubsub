@@ -70,18 +70,18 @@ fn create_empty_field_meta_data() -> FieldMetaData {
 /// Wraps FieldMetaData Type
 pub struct PubSubFieldMetaData(FieldMetaData);
 impl PubSubFieldMetaData {
-    pub fn name(&self) -> &UAString {
+    pub const fn name(&self) -> &UAString {
         &self.0.name
     }
 
-    pub fn new(cfg: FieldMetaData) -> Self {
+    pub const fn new(cfg: FieldMetaData) -> Self {
         Self(cfg)
     }
-    pub fn data_set_field_id(&self) -> &Guid {
+    pub const fn data_set_field_id(&self) -> &Guid {
         &self.0.data_set_field_id
     }
 
-    pub fn get_meta(&self) -> &FieldMetaData {
+    pub const fn get_meta(&self) -> &FieldMetaData {
         &self.0
     }
     /// Generates a the configuration from a existing server variable
@@ -96,7 +96,7 @@ impl PubSubFieldMetaData {
             .precedence();
         fmd.value_rank = var.value_rank();
         fmd.array_dimensions = var.array_dimensions();
-        PubSubFieldMetaData(fmd)
+        Self(fmd)
     }
 }
 
@@ -106,7 +106,7 @@ pub struct PubSubFieldMetaDataBuilder {
 
 impl PubSubFieldMetaDataBuilder {
     pub fn new() -> Self {
-        PubSubFieldMetaDataBuilder {
+        Self {
             data: create_empty_field_meta_data(),
         }
     }
@@ -173,7 +173,7 @@ impl DataSetField {
 
 impl DataSetFieldBuilder {
     pub fn new() -> Self {
-        DataSetFieldBuilder {
+        Self {
             alias: UAString::null(),
             promoted: false,
             published_variable: NodeId::null(),
@@ -240,7 +240,7 @@ pub fn generate_version_time() -> u32 {
 
 impl PublishedDataSet {
     pub fn new(name: UAString) -> Self {
-        PublishedDataSet {
+        Self {
             name,
             config_version: ConfigurationVersionDataType {
                 minor_version: generate_version_time(),
@@ -359,7 +359,7 @@ impl PublishedDataSet {
             .map(|d| d.get_data(addr))
             .collect()
     }
-    pub fn id(&self) -> &PublishedDataSetId {
+    pub const fn id(&self) -> &PublishedDataSetId {
         &self.dataset_id
     }
 
@@ -373,7 +373,7 @@ impl PublishedDataSet {
 pub struct DataSetTarget(pub FieldTargetDataType);
 
 impl DataSetTarget {
-    pub fn update_dv(&self, dv: DataValue) -> Result<DataValue, StatusCode> {
+    pub const fn update_dv(&self, dv: DataValue) -> Result<DataValue, StatusCode> {
         //@TODO implement correct handle override values usw.
         Ok(dv)
     }
@@ -397,7 +397,7 @@ pub struct DataSetTargetBuilder {
 impl DataSetTargetBuilder {
     /// Generates build from an guid of field metadata
     pub fn new_from_guid(guid: Guid) -> Self {
-        DataSetTargetBuilder {
+        Self {
             data: FieldTargetDataType {
                 data_set_field_id: guid,
                 receiver_index_range: UAString::null(),
@@ -463,8 +463,8 @@ pub struct SubscribedDataSet {
 pub struct UpdateTarget<'a>(pub Guid, pub DataValue, pub &'a PubSubFieldMetaData);
 
 impl SubscribedDataSet {
-    pub fn new() -> Self {
-        SubscribedDataSet {
+    pub const fn new() -> Self {
+        Self {
             targets: Vec::new(),
         }
     }

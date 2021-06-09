@@ -30,7 +30,7 @@ pub struct DiscoveryHandler {
 
 impl DiscoveryHandler {
     pub fn new() -> Self {
-        DiscoveryHandler {
+        Self {
             send_next_endpoint: None,
             send_next_dataset_writer_groups: Vec::new(),
             send_next_dataset_meta: Vec::new(),
@@ -87,8 +87,7 @@ impl DiscoveryHandler {
         let now = Utc::now();
         self.send_next_dataset_meta
             .iter()
-            .find(|(_id, dt)| *dt < now)
-            .is_some()
+            .any(|(_id, dt)| *dt < now)
     }
 
     /// Writer configuration has to be send
@@ -96,8 +95,7 @@ impl DiscoveryHandler {
         let now = Utc::now();
         self.send_next_dataset_writer_groups
             .iter()
-            .find(|(_id, dt)| *dt < now)
-            .is_some()
+            .any(|(_id, dt)| *dt < now)
     }
 
     /// Generates Discovery Responses
@@ -114,7 +112,7 @@ impl DiscoveryHandler {
         } else {
             StatusCode::BadNotImplemented
         };
-        let response = UadpPublisherEndpointsResp::new(endps.clone(), status);
+        let response = UadpPublisherEndpointsResp::new(endps, status);
         msg.payload = UadpPayload::DiscoveryResponse(Box::new(UadpDiscoveryResponse::new(
             InformationType::PublisherEndpoints,
             self.discovery_network_message_no,
@@ -182,7 +180,7 @@ impl DiscoveryHandler {
         self.discovery_network_message_no = self
             .discovery_network_message_no
             .wrapping_add(u16::try_from(ret.len()).unwrap_or(0));
-        self.send_next_dataset_writer_groups.clear();
+        self.send_next_dataset_meta.clear();
         ret
     }
     /// Generates all pending writer settings
@@ -213,21 +211,28 @@ impl DiscoveryHandler {
         self.discovery_network_message_no = self
             .discovery_network_message_no
             .wrapping_add(u16::try_from(ret.len()).unwrap_or(0));
+        self.send_next_dataset_writer_groups.clear();
         ret
     }
 
     pub fn get_next_time(&self, next: std::time::Duration) -> std::time::Duration {
         let now = Utc::now();
         let mut ret = next;
-        if let Some(enp) = self.send_next_endpoint{
+        if let Some(enp) = self.send_next_endpoint {
             ret = (enp - now).to_std().unwrap_or(ret).min(ret);
         };
-        let meta = self.send_next_dataset_meta.iter().min_by(|(_, a), (_, b)| a.cmp(b));
-        let writer = self.send_next_dataset_writer_groups.iter().min_by(|(_, a), (_, b)| a.cmp(b));
-        if let Some((_, dt)) = meta{
+        let meta = self
+            .send_next_dataset_meta
+            .iter()
+            .min_by(|(_, a), (_, b)| a.cmp(b));
+        let writer = self
+            .send_next_dataset_writer_groups
+            .iter()
+            .min_by(|(_, a), (_, b)| a.cmp(b));
+        if let Some((_, dt)) = meta {
             ret = (*dt - now).to_std().unwrap_or(ret).min(ret);
-        } 
-        if let Some((_, dt)) = writer{
+        }
+        if let Some((_, dt)) = writer {
             ret = (*dt - now).to_std().unwrap_or(ret).min(ret);
         }
         ret

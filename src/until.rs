@@ -12,7 +12,7 @@ pub fn decode_extension<T: BinaryEncoder<T>>(
 ) -> Result<T, StatusCode> {
     if let Ok(obj) = eobj.object_id() {
         if obj == objid {
-            eobj.decode_inner::<T>(&dec_opts)
+            eobj.decode_inner::<T>(dec_opts)
         } else {
             Err(StatusCode::BadDecodingError)
         }

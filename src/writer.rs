@@ -14,7 +14,11 @@ use chrono::Utc;
 use log::error;
 use opcua_types::status_code::StatusCode;
 use opcua_types::string::UAString;
-use opcua_types::{BinaryEncoder, BrokerDataSetWriterTransportDataType, DataSetOrderingType, DatagramWriterGroupTransportDataType, DecodingOptions, Duration, EncodingResult, ObjectTypeId, UadpDataSetWriterMessageDataType, UadpWriterGroupMessageDataType};
+use opcua_types::{
+    BinaryEncoder, BrokerDataSetWriterTransportDataType, DataSetOrderingType,
+    DatagramWriterGroupTransportDataType, DecodingOptions, Duration, EncodingResult, ObjectTypeId,
+    UadpDataSetWriterMessageDataType, UadpWriterGroupMessageDataType,
+};
 use opcua_types::{BrokerTransportQualityOfService, Guid};
 use opcua_types::{
     BrokerWriterGroupTransportDataType, ConfigurationVersionDataType, DataValue, Variant,
@@ -23,6 +27,7 @@ use opcua_types::{
     DataSetWriterDataType, DateTime, ExtensionObject, LocalizedText, MessageSecurityMode,
     WriterGroupDataType,
 };
+use std::convert::TryFrom;
 
 pub struct DataSetWriterBuilder {
     name: UAString,
@@ -37,7 +42,7 @@ pub struct DataSetWriterBuilder {
 
 impl DataSetWriterBuilder {
     pub fn new(pds: &PublishedDataSet) -> Self {
-        DataSetWriterBuilder {
+        Self {
             name: "DataSetWriter".into(),
             description: "".into(),
             dataset_writer_id: 12345,
@@ -58,7 +63,7 @@ impl DataSetWriterBuilder {
         meta_topic: &UAString,
         meta_qos: &BrokerTransportQualityOfService,
     ) -> Self {
-        DataSetWriterBuilder {
+        Self {
             description: "".into(),
             name: "DataSetWriter".into(),
             dataset_writer_id: 12345,
@@ -147,7 +152,7 @@ pub struct DataSetWriter {
 
 impl DataSetWriter {
     /// Get Transport Settings
-    pub fn transport_settings(&self) -> &TransportSettings {
+    pub const fn transport_settings(&self) -> &TransportSettings {
         &self.transport_settings
     }
 
@@ -188,14 +193,14 @@ impl DataSetWriter {
         self.key_frame_count = cfg.key_frame_count;
         self.dataset_name = cfg.data_set_name.clone();
         self.field_content_mask = cfg.data_set_field_content_mask;
-        let (transport_setting, msg_settings) = Self::decode_transport_message_setting(&cfg)?;
+        let (transport_setting, msg_settings) = Self::decode_transport_message_setting(cfg)?;
         self.transport_settings = transport_setting;
         self.message_content_mask = msg_settings.data_set_message_content_mask;
         Ok(())
     }
 
     pub fn from_cfg(cfg: &DataSetWriterDataType) -> Result<Self, StatusCode> {
-        let mut s = DataSetWriter {
+        let mut s = Self {
             name: "".into(),
             description: "".into(),
             dataset_writer_id: 1234_u16,
@@ -303,6 +308,89 @@ impl DataSetWriter {
             msg.header.time_stamp = Some(DateTime::now());
         }
     }
+
+    fn generate_delta_frame(
+        &mut self,
+        publishing_interval: Duration,
+        ds: Vec<(Promoted, DataValue)>,
+    ) -> Option<UadpMessageType> {
+        let time_diff = chrono::Duration::milliseconds(
+            (publishing_interval * self.delta_frame_counter as f64) as i64,
+        );
+        let offset: DateTime = (Utc::now() - time_diff).into();
+        // Generate a DeltaFrame with Variants
+        if self.field_content_mask.is_empty() {
+            let mut cnt: u16 = 0;
+            let mut vec = Vec::new();
+            for (_, d) in ds {
+                cnt += 1;
+                if let Some(dt) = d.source_timestamp {
+                    if dt.ticks() > offset.ticks() {
+                        vec.push((
+                            cnt,
+                            // Variant Value or StatusCode if no Value
+                            match d.value {
+                                Some(x) => x,
+                                None => Variant::StatusCode(
+                                    d.status.unwrap_or(StatusCode::BadUnexpectedError),
+                                ),
+                            },
+                        ));
+                    }
+                }
+            }
+            if vec.is_empty() {
+                None
+            } else {
+                Some(UadpMessageType::KeyDeltaFrameVariant(vec))
+            }
+        }
+        // Generate a DeltaFrame with RawData
+        else if self
+            .field_content_mask
+            .contains(DataSetFieldContentMask::RawData)
+        {
+            error!("DeltaFrame for raw not supported");
+            None // @TODO Atm raw transport is not supported
+        }
+        // Generate a DeltaFrame with DataValue
+        else {
+            let mut cnt: u16 = 0;
+            let mut vec = Vec::new();
+            for (_, mut d) in ds {
+                cnt += 1;
+                if let Some(dt) = &d.source_timestamp {
+                    if dt.ticks() > offset.ticks() {
+                        if !self
+                            .field_content_mask
+                            .contains(DataSetFieldContentMask::SourceTimestamp)
+                        {
+                            d.server_timestamp = None;
+                        }
+                        if !self
+                            .field_content_mask
+                            .contains(DataSetFieldContentMask::ServerTimestamp)
+                        {
+                            d.source_timestamp = None;
+                        }
+                        if !self
+                            .field_content_mask
+                            .contains(DataSetFieldContentMask::StatusCode)
+                        {
+                            d.status = None;
+                        }
+                        vec.push((cnt, d));
+                    }
+                }
+            }
+            if vec.is_empty() {
+                None
+            } else {
+                Some(UadpMessageType::KeyDeltaFrameValue(vec))
+            }
+        }
+    }
+
     pub fn generate_message(
         &mut self,
         ds: Vec<(Promoted, DataValue)>,
@@ -319,81 +407,7 @@ impl DataSetWriter {
         // The exception is if the dataset only contains 1 field because generating
         // a delta frame for 1 element is longer then sending a keyframe
         let dataset = if ds.len() > 1 && self.delta_frame_counter < self.key_frame_count {
-            let time_diff = chrono::Duration::milliseconds(
-                (publishing_interval * self.delta_frame_counter as f64) as i64,
-            );
-            let offset: DateTime = (Utc::now() - time_diff).into();
-            // Generate a DeltaFrame with Variants
-            if self.field_content_mask.is_empty() {
-                let mut cnt: u16 = 0;
-                let mut vec = Vec::new();
-                for (_, d) in ds {
-                    cnt += 1;
-                    if let Some(dt) = d.source_timestamp {
-                        if dt.ticks() > offset.ticks() {
-                            vec.push((
-                                cnt,
-                                // Variant Value or StatusCode if no Value
-                                match d.value {
-                                    Some(x) => x,
-                                    None => Variant::StatusCode(
-                                        d.status.unwrap_or(StatusCode::BadUnexpectedError),
-                                    ),
-                                },
-                            ));
-                        }
-                    }
-                }
-                if vec.is_empty() {
-                    None
-                } else {
-                    Some(UadpMessageType::KeyDeltaFrameVariant(vec))
-                }
-            }
-            // Generate a DeltaFrame with RawData
-            else if self
-                .field_content_mask
-                .contains(DataSetFieldContentMask::RawData)
-            {
-                error!("DeltaFrame for raw not supported");
-                None // @TODO Atm raw transport is not supported
-            }
-            // Generate a DeltaFrame with DataValue
-            else {
-                let mut cnt: u16 = 0;
-                let mut vec = Vec::new();
-                for (_, mut d) in ds {
-                    cnt += 1;
-                    if let Some(dt) = &d.source_timestamp {
-                        if dt.ticks() > offset.ticks() {
-                            if !self
-                                .field_content_mask
-                                .contains(DataSetFieldContentMask::SourceTimestamp)
-                            {
-                                d.server_timestamp = None;
-                            }
-                            if !self
-                                .field_content_mask
-                                .contains(DataSetFieldContentMask::ServerTimestamp)
-                            {
-                                d.source_timestamp = None;
-                            }
-                            if !self
-                                .field_content_mask
-                                .contains(DataSetFieldContentMask::StatusCode)
-                            {
-                                d.status = None;
-                            }
-                            vec.push((cnt, d));
-                        }
-                    }
-                }
-                if vec.is_empty() {
-                    None
-                } else {
-                    Some(UadpMessageType::KeyDeltaFrameValue(vec))
-                }
-            }
+            self.generate_delta_frame(publishing_interval, ds)
         } else {
             // Generate KeyFrame with variants
             if self.field_content_mask.is_empty() {
@@ -414,13 +428,17 @@ impl DataSetWriter {
                 .field_content_mask
                 .contains(DataSetFieldContentMask::RawData)
             {
-                Some(UadpMessageType::KeyFrameRaw(ds.into_iter().map(|(_, d)|{ 
-                    let mut data = Vec::new();    
-                    if let Some(v) = &d.value{
-                        to_raw(&mut data,v).unwrap_or_default();
-                    }
-                    data
-                }).collect()))
+                Some(UadpMessageType::KeyFrameRaw(
+                    ds.into_iter()
+                        .map(|(_, d)| {
+                            let mut data = Vec::new();
+                            if let Some(v) = &d.value {
+                                to_raw(&mut data, v).unwrap_or_default();
+                            }
+                            data
+                        })
+                        .collect(),
+                ))
             }
             // Generate KeyFrame with DataValue
             else {
@@ -493,7 +511,7 @@ impl WriterGroup {
     }
 
     /// Get Transport Settings
-    pub fn transport_settings(&self) -> &TransportSettings {
+    pub const fn transport_settings(&self) -> &TransportSettings {
         &self.transport_settings
     }
 
@@ -541,9 +559,9 @@ impl WriterGroup {
                     .iter_mut()
                     .find(|x| x.dataset_writer_id == dsw.data_set_writer_id)
                 {
-                    w.update(&dsw)?;
+                    w.update(dsw)?;
                 } else {
-                    self.add_dataset_writer(DataSetWriter::from_cfg(&dsw)?);
+                    self.add_dataset_writer(DataSetWriter::from_cfg(dsw)?);
                 }
             }
         }
@@ -551,7 +569,7 @@ impl WriterGroup {
     }
 
     pub fn from_cfg(cfg: &WriterGroupDataType) -> Result<Self, StatusCode> {
-        let mut s = WriterGroup {
+        let mut s = Self {
             name: cfg.name.clone(),
             enabled: false,
             writer_group_id: cfg.writer_group_id,
@@ -837,7 +855,7 @@ pub struct WriterGroupBuilder {
 
 impl WriterGroupBuilder {
     pub fn new() -> Self {
-        WriterGroupBuilder {
+        Self {
             name: "WriterGroup".into(),
             group_id: 12345,
             publish_interval: 1000.0,
@@ -852,7 +870,7 @@ impl WriterGroupBuilder {
     }
 
     pub fn new_for_broker(topic: &UAString, qos: &BrokerTransportQualityOfService) -> Self {
-        WriterGroupBuilder {
+        Self {
             name: "WriterGroup".into(),
             group_id: 12345,
             publish_interval: 1000.0,
@@ -874,8 +892,8 @@ impl WriterGroupBuilder {
     }
 
     /// DataSetOrderingType::Undefined =>  The ordering of DataSetMessages is not specified.
-    /// DataSetOrderingType::AscendingWriterId => DataSetMessages are ordered ascending by the value of their corresponding DataSetWriterIds.
-    /// DataSetOrderingType::AscendingWriterIdSingle => DataSetMessages are ordered ascending by the value of their corresponding DataSetWriterIds and only one DataSetMessage is sent per NetworkMessage.
+    /// DataSetOrderingType::AscendingWriterId => DataSetMessages are ordered ascending by the value of their corresponding `DataSetWriterIds`.
+    /// DataSetOrderingType::AscendingWriterIdSingle => `DataSetMessages` are ordered ascending by the value of their corresponding `DataSetWriterIds` and only one `DataSetMessage` is sent per `NetworkMessage`.
     pub fn set_ordering(&mut self, ordering: DataSetOrderingType) -> &mut Self {
         self.ordering = ordering;
         self
@@ -905,7 +923,7 @@ impl WriterGroupBuilder {
         self.message_settings = mask;
         self
     }
-
+    #[must_use]
     pub fn build(&self) -> WriterGroup {
         WriterGroup {
             name: self.name.clone(),
@@ -933,9 +951,9 @@ impl Default for WriterGroupBuilder {
     }
 }
 
-fn to_raw<Stream: std::io::Write>(stream: &mut Stream, var: &Variant) -> EncodingResult<usize>{
-    Ok(match var{
-        Variant::Empty =>{ 0_usize },
+fn to_raw<Stream: std::io::Write>(stream: &mut Stream, var: &Variant) -> EncodingResult<usize> {
+    Ok(match var {
+        Variant::Empty => 0_usize,
         Variant::Boolean(v) => v.encode(stream)?,
         Variant::SByte(v) => v.encode(stream)?,
         Variant::Byte(v) => v.encode(stream)?,
@@ -947,37 +965,45 @@ fn to_raw<Stream: std::io::Write>(stream: &mut Stream, var: &Variant) -> Encodin
         Variant::UInt64(v) => v.encode(stream)?,
         Variant::Float(v) => v.encode(stream)?,
         Variant::Double(v) => v.encode(stream)?,
-        Variant::String(v) => v.encode(stream)?,
+        Variant::String(v) | Variant::XmlElement(v) => v.encode(stream)?,
         Variant::DateTime(v) => v.encode(stream)?,
         Variant::Guid(v) => v.encode(stream)?,
         Variant::StatusCode(v) => v.encode(stream)?,
         Variant::ByteString(v) => v.encode(stream)?,
-        Variant::XmlElement(v) => v.encode(stream)?,
         Variant::QualifiedName(v) => v.encode(stream)?,
         Variant::LocalizedText(v) => v.encode(stream)?,
         Variant::NodeId(v) => v.encode(stream)?,
         Variant::ExpandedNodeId(v) => v.encode(stream)?,
-        Variant::ExtensionObject(v) => match &v.body{
+        Variant::ExtensionObject(v) => match &v.body {
             opcua_types::ExtensionObjectEncoding::None => 0,
             opcua_types::ExtensionObjectEncoding::ByteString(v) => v.encode(stream)?,
             opcua_types::ExtensionObjectEncoding::XmlElement(v) => v.encode(stream)?,
-        }
+        },
         Variant::Array(array) => {
-            let mut size = opcua_types::write_i32(stream, array.values.len() as i32)?;
-                for value in array.values.iter() {
-                    size += to_raw(stream, &value)?;
+            let mut size = match i32::try_from(array.values.len()) {
+                Ok(len) => opcua_types::write_i32(stream, len)?,
+                Err(_) => return Err(StatusCode::BadOutOfRange),
+            };
+            for value in &array.values {
+                size += to_raw(stream, value)?;
+            }
+            if array.has_dimensions() {
+                // Note array dimensions are encoded as Int32 even though they are presented
+                // as UInt32 through attribute.
+                // Encode dimensions length
+                match i32::try_from(array.dimensions.len()) {
+                    Ok(dim) => size += opcua_types::write_i32(stream, dim)?,
+                    Err(_) => return Err(StatusCode::BadOutOfRange),
                 }
-                if array.has_dimensions() {
-                    // Note array dimensions are encoded as Int32 even though they are presented
-                    // as UInt32 through attribute.
-                    // Encode dimensions length
-                    size += opcua_types::write_i32(stream, array.dimensions.len() as i32)?;
-                    // Encode dimensions
-                    for dimension in &array.dimensions {
-                        size += opcua_types::write_i32(stream, *dimension as i32)?;
+                // Encode dimensions
+                for dimension in &array.dimensions {
+                    match i32::try_from(*dimension) {
+                        Ok(dim) => size += opcua_types::write_i32(stream, dim)?,
+                        Err(_) => return Err(StatusCode::BadOutOfRange),
                     }
                 }
-                size
+            }
+            size
         }
     })
 }

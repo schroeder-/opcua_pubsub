@@ -89,7 +89,7 @@ mod paho {
     }
 
     impl MqttConnection {
-        pub fn new(cfg: &MqttConfig) -> Result<MqttConnection, StatusCode> {
+        pub fn new(cfg: &MqttConfig) -> Result<Self, StatusCode> {
             let org_url = cfg.url().to_string();
             // pharo doesn't support mqtt scheme so change to tcp:// and mqtt://
             let url = org_url.replace("mqtt://", "tcp://");
@@ -131,7 +131,7 @@ mod paho {
                     }
                 }
             }
-            Ok(MqttConnection {
+            Ok(Self {
                 cli: Arc::new(RwLock::new(cli)),
             })
         }
@@ -143,7 +143,7 @@ mod paho {
                     &b.meta_data_queue_name,
                     qos_from(b.requested_delivery_guarantee),
                 ),
-                _ => return Err(StatusCode::BadInvalidArgument),
+                ReaderTransportSettings::None => return Err(StatusCode::BadInvalidArgument),
             };
             let cli = self.cli.write().unwrap();
             let res = match topic.value() {
@@ -174,7 +174,7 @@ mod paho {
                 ReaderTransportSettings::BrokerDataSetReader(b) => {
                     (&b.queue_name, &b.meta_data_queue_name)
                 }
-                _ => return Err(StatusCode::BadInvalidArgument),
+                &ReaderTransportSettings::None => return Err(StatusCode::BadInvalidArgument),
             };
             let cli = self.cli.write().unwrap();
             let res_topic = match topic.value() {
@@ -211,7 +211,7 @@ mod paho {
                 TransportSettings::BrokerWrite(b) => {
                     (&b.queue_name, qos_from(b.requested_delivery_guarantee))
                 }
-                _ => (&def, 1),
+                TransportSettings::None => (&def, 1),
             };
             let topic: &str = match topic.value() {
                 Some(t) => &*t,
@@ -250,13 +250,13 @@ mod paho {
             }
         }
     }
-    fn qos_from(requested_delivery_guarantee: BrokerTransportQualityOfService) -> i32 {
+    const fn qos_from(requested_delivery_guarantee: BrokerTransportQualityOfService) -> i32 {
         match requested_delivery_guarantee {
-            BrokerTransportQualityOfService::AtLeastOnce => 1,
+            BrokerTransportQualityOfService::NotSpecified
+            | BrokerTransportQualityOfService::AtLeastOnce => 1,
             BrokerTransportQualityOfService::AtMostOnce => 0,
-            BrokerTransportQualityOfService::BestEffort => 2,
-            BrokerTransportQualityOfService::ExactlyOnce => 2,
-            BrokerTransportQualityOfService::NotSpecified => 1,
+            BrokerTransportQualityOfService::ExactlyOnce
+            | BrokerTransportQualityOfService::BestEffort => 2,
         }
     }
 
@@ -275,4 +275,4 @@ mod paho {
 #[cfg(not(feature = "mqtt"))]
 pub(crate) use dummy::*;
 #[cfg(feature = "mqtt")]
-pub(crate) use paho::*;
+pub use paho::*;

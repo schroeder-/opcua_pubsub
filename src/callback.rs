@@ -35,7 +35,7 @@ where
 {
     /// wraps function or closure
     pub fn new(func: T) -> Self {
-        OnReceiveValueFn {
+        Self {
             recv: Box::new(Mutex::new(func)),
         }
     }
@@ -50,7 +50,7 @@ where
     T: Fn(&DataSetReader, &[UpdateTarget]) + Send,
 {
     fn data_received(&mut self, reader: &DataSetReader, dataset: &[UpdateTarget]) {
-        (self.recv).lock().unwrap()(reader, &dataset);
+        (self.recv).lock().unwrap()(reader, dataset);
     }
 }
 

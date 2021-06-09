@@ -124,7 +124,7 @@ impl PubSubConnection {
             _ => return Err(StatusCode::BadTypeMismatch),
         }
 
-        Ok(PubSubConnection {
+        Ok(Self {
             name: "Con".into(),
             network_config,
             publisher_id,
@@ -193,13 +193,12 @@ impl PubSubConnection {
             match msg.payload {
                 UadpPayload::Chunk(_) | UadpPayload::DataSets(_) => {
                     for rg in self.reader.iter_mut() {
-                        rg.handle_message(&topic, &msg, &self.data_source, &self.value_recv);
+                        rg.handle_message(topic, &msg, &self.data_source, &self.value_recv);
                     }
                 }
                 UadpPayload::DiscoveryRequest(req) => {
                     self.discovery.handle_request(&req);
                 }
-                //@TODO interpreted response
                 UadpPayload::DiscoveryResponse(_) => {}
                 UadpPayload::None => {}
             }
@@ -216,13 +215,13 @@ impl PubSubConnection {
         }
     }
     /// Check if the connection is valid and can be used
-    pub fn is_valid(&self) -> Result<(), StatusCode> {
+    pub const fn is_valid(&self) -> Result<(), StatusCode> {
         //@TODO check object
         Ok(())
     }
 
     /// Get the id of the connection
-    pub fn id(&self) -> &PubSubConnectionId {
+    pub const fn id(&self) -> &PubSubConnectionId {
         &self.id
     }
 
@@ -414,7 +413,7 @@ impl PubSubConnection {
             None => SimpleAddressSpace::new_arc_lock(),
         };
         let net_cfg = ConnectionConfig::from_cfg(cfg)?;
-        let mut s = PubSubConnection::new(net_cfg, cfg.publisher_id.clone(), data_source, None)?;
+        let mut s = Self::new(net_cfg, cfg.publisher_id.clone(), data_source, None)?;
         s.internal_update(cfg)?;
         Ok(s)
     }
@@ -437,7 +436,7 @@ impl PubSubConnection {
     }
 
     /// Get a reference to the pub sub connection's publisher id.
-    pub fn publisher_id(&self) -> &Variant {
+    pub const fn publisher_id(&self) -> &Variant {
         &self.publisher_id
     }
 
@@ -447,7 +446,7 @@ impl PubSubConnection {
     }
 
     /// Get a reference to the pub sub connection's name.
-    pub fn name(&self) -> &UAString {
+    pub const fn name(&self) -> &UAString {
         &self.name
     }
 }
@@ -483,7 +482,7 @@ impl<'a> DataSetInfo for PubSubDataSetInfo<'a> {
 
 impl PubSubConnectionBuilder {
     pub fn new() -> Self {
-        PubSubConnectionBuilder {
+        Self {
             name: "UADP Connection 1".into(),
             enabled: true,
             publisher_id: 12345_u16.into(),

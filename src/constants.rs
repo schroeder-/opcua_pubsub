@@ -53,28 +53,16 @@ impl From<&UAString> for PubSubTransportProfil {
     fn from(transport: &UAString) -> Self {
         if let Some(str) = transport.value() {
             match str.as_str() {
-                "http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp" => {
-                    PubSubTransportProfil::UdpUadp
-                }
-                "http://opcfoundation.org/UA-Profile/Transport/pubsub-amqp-uadp" => {
-                    PubSubTransportProfil::AmqpUadp
-                }
-                "http://opcfoundation.org/UA-Profile/Transport/pubsub-amqp-json" => {
-                    PubSubTransportProfil::AmqpJson
-                }
-                "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-json" => {
-                    PubSubTransportProfil::MqttJson
-                }
-                "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-uadp" => {
-                    PubSubTransportProfil::MqttUadp
-                }
-                "http://opcfoundation.org/UA-Profile/Transport/pubsub-eth-uadp" => {
-                    PubSubTransportProfil::EthUadp
-                }
-                _ => PubSubTransportProfil::Unkown,
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp" => Self::UdpUadp,
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-amqp-uadp" => Self::AmqpUadp,
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-amqp-json" => Self::AmqpJson,
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-json" => Self::MqttJson,
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-uadp" => Self::MqttUadp,
+                "http://opcfoundation.org/UA-Profile/Transport/pubsub-eth-uadp" => Self::EthUadp,
+                _ => Self::Unkown,
             }
         } else {
-            PubSubTransportProfil::Unkown
+            Self::Unkown
         }
     }
 }

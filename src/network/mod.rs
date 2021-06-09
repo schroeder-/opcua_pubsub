@@ -2,19 +2,19 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2020 Alexander Schrode
 pub mod configuration;
-pub(crate) mod mqtt;
-pub(crate) mod uadp;
+pub mod mqtt;
+pub mod uadp;
 
-pub(crate) use self::mqtt::MqttConnection;
+pub use self::mqtt::MqttConnection;
 use self::mqtt::MqttReceiver;
-pub(crate) use self::uadp::UadpNetworkConnection;
+pub use self::uadp::UadpNetworkConnection;
 use self::uadp::UadpNetworkReceiver;
 use log::error;
 use opcua_types::status_code::StatusCode;
 use opcua_types::BrokerWriterGroupTransportDataType;
 use std::io;
 /// Abstraction of Connection layer
-pub(crate) enum Connections {
+pub enum Connections {
     Uadp(UadpNetworkConnection),
     Mqtt(MqttConnection),
 }
@@ -46,7 +46,7 @@ impl Connections {
             Connections::Mqtt(s) => match settings {
                 TransportSettings::BrokerWrite(_cfg) => s.publish(b, settings),
                 TransportSettings::BrokerDataSetWrite(_cfg) => s.publish(b, settings),
-                _ => {
+                TransportSettings::None => {
                     error!("mqtt need broker transport settings!");
                     Err(std::io::Error::new(
                         io::ErrorKind::InvalidInput,
@@ -60,26 +60,28 @@ impl Connections {
     pub fn subscribe(&self, settings: &ReaderTransportSettings) -> Result<(), StatusCode> {
         match self {
             Connections::Uadp(_s) => Ok(()), // Not supported
-            Connections::Mqtt(s) => match settings {
-                ReaderTransportSettings::BrokerDataSetReader(_cfg) => s.subscribe(settings),
-                _ => {
+            Connections::Mqtt(s) => {
+                if let ReaderTransportSettings::BrokerDataSetReader(_cfg) = settings {
+                    s.subscribe(settings)
+                } else {
                     error!("mqtt need broker transport settings!");
                     Err(StatusCode::BadInvalidArgument)
                 }
-            },
+            }
         }
     }
     /// unsubscribe to data
     pub fn unsubscribe(&self, settings: &ReaderTransportSettings) -> Result<(), StatusCode> {
         match self {
             Connections::Uadp(_s) => Ok(()), // Not supported
-            Connections::Mqtt(s) => match settings {
-                ReaderTransportSettings::BrokerDataSetReader(_cfg) => s.unsubscribe(settings),
-                _ => {
+            Connections::Mqtt(s) => {
+                if let ReaderTransportSettings::BrokerDataSetReader(_cfg) = settings {
+                    s.unsubscribe(settings)
+                } else {
                     error!("mqtt need broker transport settings!");
                     Err(StatusCode::BadInvalidArgument)
                 }
-            },
+            }
         }
     }
 
