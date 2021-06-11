@@ -15,6 +15,9 @@ mod network;
 pub mod reader;
 pub mod until;
 pub mod writer;
+#[cfg(feature = "server-integration")]
+pub mod information_model;
+
 pub mod prelude {
     pub use crate::address_space::{PubSubDataSource, SimpleAddressSpace};
     pub use crate::app::PubSubApp;
@@ -36,6 +39,8 @@ pub mod prelude {
         NodeId, OverrideValueHandling, UadpDataSetMessageContentMask,
         UadpNetworkMessageContentMask, Variant,
     };
+    #[cfg(feature = "server-integration")]
+    pub use crate::information_model::PubSubInformationModel;
 }
 
 use opcua_types::DataSetFieldContentMask;

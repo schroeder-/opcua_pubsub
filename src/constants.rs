@@ -4,7 +4,7 @@
 use opcua_types::UAString;
 
 /// The transport profile to use for this PubSubConnections
-pub enum PubSubTransportProfil {
+pub enum PubSubTransportProfile {
     /// http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp
     UdpUadp,
     /// http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-json
@@ -21,25 +21,25 @@ pub enum PubSubTransportProfil {
     Unkown,
 }
 
-impl PubSubTransportProfil {
+impl PubSubTransportProfile {
     pub fn to_string(&self) -> UAString {
         match self {
-            PubSubTransportProfil::UdpUadp => {
+            PubSubTransportProfile::UdpUadp => {
                 "http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp"
             }
-            PubSubTransportProfil::AmqpUadp => {
+            PubSubTransportProfile::AmqpUadp => {
                 "http://opcfoundation.org/UA-Profile/Transport/pubsub-amqp-uadp"
             }
-            PubSubTransportProfil::AmqpJson => {
+            PubSubTransportProfile::AmqpJson => {
                 "http://opcfoundation.org/UA-Profile/Transport/pubsub-amqp-json"
             }
-            PubSubTransportProfil::MqttJson => {
+            PubSubTransportProfile::MqttJson => {
                 "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-json"
             }
-            PubSubTransportProfil::MqttUadp => {
+            PubSubTransportProfile::MqttUadp => {
                 "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-uadp"
             }
-            PubSubTransportProfil::EthUadp => {
+            PubSubTransportProfile::EthUadp => {
                 "http://opcfoundation.org/UA-Profile/Transport/pubsub-eth-uadp"
             }
             _ => "",
@@ -48,7 +48,7 @@ impl PubSubTransportProfil {
     }
 }
 
-impl From<&UAString> for PubSubTransportProfil {
+impl From<&UAString> for PubSubTransportProfile {
     /// Get from a UAString containing an urn
     fn from(transport: &UAString) -> Self {
         if let Some(str) = transport.value() {

@@ -1,7 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-use crate::constants::PubSubTransportProfil;
+use crate::constants::PubSubTransportProfile;
 use crate::until::decode_extension;
 use log::error;
 use opcua_types::status_code::StatusCode;
@@ -27,27 +27,27 @@ impl ConnectionConfig {
             ObjectId::NetworkAddressUrlDataType_Encoding_DefaultBinary,
             &DecodingOptions::default(),
         )?;
-        match PubSubTransportProfil::from(&cfg.transport_profile_uri) {
-            PubSubTransportProfil::UdpUadp => Ok(Self::Uadp(UadpConfig::new_with_if(
+        match PubSubTransportProfile::from(&cfg.transport_profile_uri) {
+            PubSubTransportProfile::UdpUadp => Ok(Self::Uadp(UadpConfig::new_with_if(
                 net.url,
                 net.network_interface,
             ))),
-            PubSubTransportProfil::MqttUadp => Ok(Self::Mqtt(MqttConfig::new_from_probs(
+            PubSubTransportProfile::MqttUadp => Ok(Self::Mqtt(MqttConfig::new_from_probs(
                 net.url,
                 &cfg.connection_properties,
             ))),
-            PubSubTransportProfil::AmqpUadp
-            | PubSubTransportProfil::MqttJson
-            | PubSubTransportProfil::AmqpJson
-            | PubSubTransportProfil::EthUadp
-            | PubSubTransportProfil::Unkown => Err(StatusCode::BadNotImplemented),
+            PubSubTransportProfile::AmqpUadp
+            | PubSubTransportProfile::MqttJson
+            | PubSubTransportProfile::AmqpJson
+            | PubSubTransportProfile::EthUadp
+            | PubSubTransportProfile::Unkown => Err(StatusCode::BadNotImplemented),
         }
     }
 
-    pub const fn get_transport_profile(&self) -> PubSubTransportProfil {
+    pub const fn get_transport_profile(&self) -> PubSubTransportProfile {
         match self {
-            ConnectionConfig::Uadp(_) => PubSubTransportProfil::UdpUadp,
-            ConnectionConfig::Mqtt(_) => PubSubTransportProfil::MqttUadp,
+            ConnectionConfig::Uadp(_) => PubSubTransportProfile::UdpUadp,
+            ConnectionConfig::Mqtt(_) => PubSubTransportProfile::MqttUadp,
         }
     }
     pub fn get_address(&self) -> NetworkAddressUrlDataType {
@@ -153,8 +153,8 @@ impl UadpConfig {
     }
 
     #[must_use]
-    pub const fn profile(&self) -> PubSubTransportProfil {
-        PubSubTransportProfil::UdpUadp
+    pub const fn profile(&self) -> PubSubTransportProfile {
+        PubSubTransportProfile::UdpUadp
     }
 
     /// Extracts the config needed for creating a connection
@@ -251,8 +251,8 @@ impl MqttConfig {
         &self.url
     }
 
-    pub const fn profile(&self) -> PubSubTransportProfil {
-        PubSubTransportProfil::MqttUadp
+    pub const fn profile(&self) -> PubSubTransportProfile {
+        PubSubTransportProfile::MqttUadp
     }
 
     /// Sets the username for the connection

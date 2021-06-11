@@ -107,6 +107,7 @@ fn main() -> Result<(), StatusCode> {
     let server = create_server();
     let ns = generate_namespace(&server);
     let pubsub = generate_pubsub(ns, &server)?;
+    PubSubInformationModel::new(&server, pubsub.clone())?;
     // Run pubsub
     PubSubApp::run_thread(pubsub);
     // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
