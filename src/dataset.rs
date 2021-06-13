@@ -1,7 +1,7 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-use crate::address_space::{PubSubDataSource, PubSubDataSourceT};
+use crate::address_space::PubSubDataSource;
 use crate::reader::DataSetReader;
 use crate::until::decode_extension;
 use log::{error, warn};
@@ -16,8 +16,8 @@ use opcua_types::{ConfigurationVersionDataType, PublishedVariableDataType};
 use opcua_types::{DataValue, FieldMetaData, Variant};
 use opcua_types::{FieldTargetDataType, NodeId, OverrideValueHandling};
 use std::convert::TryFrom;
+use std::iter;
 use std::sync::{Arc, RwLock};
-
 /// Id for a pubsubconnection
 #[derive(Debug, PartialEq, Clone)]
 pub struct PublishedDataSetId(pub u32);
@@ -93,7 +93,7 @@ impl PubSubFieldMetaData {
         fmd.data_type = dt.into();
         fmd.built_in_type = VariantTypeId::try_from(&fmd.data_type)
             .unwrap_or(VariantTypeId::ExtensionObject)
-            .precedence();
+            .encoding_mask();
         fmd.value_rank = var.value_rank();
         fmd.array_dimensions = var.array_dimensions();
         Self(fmd)
@@ -125,7 +125,7 @@ impl PubSubFieldMetaDataBuilder {
         self.data.data_type = dt.into();
         self.data.built_in_type = VariantTypeId::try_from(&self.data.data_type)
             .unwrap_or(VariantTypeId::ExtensionObject)
-            .precedence();
+            .encoding_mask();
         self
     }
 
@@ -153,21 +153,6 @@ impl PubSubFieldMetaDataBuilder {
 impl Default for PubSubFieldMetaDataBuilder {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl DataSetField {
-    /// converts data from a source to datavalue
-    pub fn get_data(&self, addr: &dyn PubSubDataSource) -> (Promoted, DataValue) {
-        let v = addr.get_pubsub_value(&self.published_variable_cfg.published_variable);
-        match v {
-            Ok(dv) => (Promoted(self.promoted_field), dv),
-            Err(_) => {
-                let mut dv = DataValue::null();
-                dv.status = Some(StatusCode::BadNodeIdInvalid);
-                (Promoted(self.promoted_field), dv)
-            }
-        }
     }
 }
 
@@ -353,11 +338,31 @@ impl PublishedDataSet {
         self.dataset_fields.push(dsf);
     }
 
-    pub fn get_data(&self, addr: &dyn PubSubDataSource) -> Vec<(Promoted, DataValue)> {
-        self.dataset_fields
+    pub fn get_data(&self, addr: &mut PubSubDataSource) -> Vec<(Promoted, DataValue)> {
+        let nids: Vec<_> = self
+            .dataset_fields
             .iter()
-            .map(|d| d.get_data(addr))
+            .map(|d| d.published_variable_cfg.published_variable.clone())
+            .collect();
+        let datas = addr.get_pubsub_values(&nids);
+        if datas.is_empty() {
+            Vec::new()
+        } else {
+            let it = self.dataset_fields.iter().zip(
+                datas
+                    .into_iter()
+                    .chain(iter::repeat(Err(StatusCode::BadNodeIdUnknown))),
+            );
+            it.map(|(field, v)| match v {
+                Ok(dv) => (Promoted(field.promoted_field), dv),
+                Err(_) => {
+                    let mut dv = DataValue::null();
+                    dv.status = Some(StatusCode::BadNodeIdInvalid);
+                    (Promoted(field.promoted_field), dv)
+                }
+            })
             .collect()
+        }
     }
     pub const fn id(&self) -> &PublishedDataSetId {
         &self.dataset_id
@@ -476,14 +481,19 @@ impl SubscribedDataSet {
     pub fn update_targets(
         &self,
         data: Vec<UpdateTarget>,
-        data_source: &Arc<RwLock<PubSubDataSourceT>>,
+        data_source: &Arc<RwLock<PubSubDataSource>>,
     ) {
+        let d = data
+            .into_iter()
+            .filter_map(|UpdateTarget(guid, value, meta)| {
+                self.targets
+                    .iter()
+                    .find(|t| t.0.data_set_field_id == guid)
+                    .map(|t| (t, value, meta))
+            })
+            .collect();
         let mut source = data_source.write().unwrap();
-        for UpdateTarget(guid, value, meta) in data {
-            if let Some(t) = self.targets.iter().find(|t| t.0.data_set_field_id == guid) {
-                source.set_pubsub_value(t, value, meta);
-            }
-        }
+        source.set_pubsub_values(d)
     }
 
     pub fn generate_cfg(&self) -> Vec<FieldTargetDataType> {

@@ -25,7 +25,7 @@ fn uadp_message_test() -> Result<(), StatusCode> {
     let pubsub = PubSubConnection::new(
         UadpConfig::new(url.into()).into(),
         Variant::UInt16(1002),
-        data_source,
+        PubSubDataSource::new_arc(data_source),
         None,
     )?;
     const CNT: usize = 100;

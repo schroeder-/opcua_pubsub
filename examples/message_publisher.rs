@@ -14,8 +14,12 @@ fn main() -> Result<(), StatusCode> {
     // create a dummy datasource not need in this configuration
     let data_source = SimpleAddressSpace::new_arc_lock();
     let uadp_config = UadpConfig::new(url.into());
-    let pubsub =
-        PubSubConnection::new(uadp_config.into(), Variant::UInt16(1002), data_source, None)?;
+    let pubsub = PubSubConnection::new(
+        uadp_config.into(),
+        Variant::UInt16(1002),
+        PubSubDataSource::new_arc(data_source),
+        None,
+    )?;
     let strs = vec![
         "ALFA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL", "INDIA",
         "JULIETT", "KILO", "LIMA", "MIKE", "NOVEMBER", "OSCAR", "PAPA", "QUEBEC", "ROMEO",

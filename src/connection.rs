@@ -1,8 +1,7 @@
+use crate::address_space::DataSource;
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-
-use crate::address_space::PubSubDataSourceT;
 use crate::callback::OnPubSubReceiveValues;
 use crate::dataset::{DataSetInfo, Promoted, PublishedDataSet};
 use crate::discovery::DiscoveryHandler;
@@ -56,7 +55,7 @@ pub struct PubSubConnection {
     writer: Vec<WriterGroup>,
     reader: Vec<ReaderGroup>,
     network_message_no: u16,
-    data_source: Arc<RwLock<PubSubDataSourceT>>,
+    data_source: Arc<RwLock<PubSubDataSource>>,
     value_recv: Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
     id: PubSubConnectionId,
     discovery_dechunk: UadpMessageChunkManager,
@@ -99,7 +98,7 @@ impl PubSubConnection {
     pub fn new(
         network_config: ConnectionConfig,
         publisher_id: Variant,
-        data_source: Arc<RwLock<PubSubDataSourceT>>,
+        data_source: Arc<RwLock<PubSubDataSource>>,
         value_recv: Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
     ) -> Result<Self, StatusCode> {
         // Check if transport profile is supported
@@ -406,11 +405,11 @@ impl PubSubConnection {
 
     pub fn from_cfg(
         cfg: &PubSubConnectionDataType,
-        ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
+        ds: Option<Arc<RwLock<PubSubDataSource>>>,
     ) -> Result<Self, StatusCode> {
         let data_source = match ds {
             Some(ds) => ds,
-            None => SimpleAddressSpace::new_arc_lock(),
+            None => PubSubDataSource::new_arc(SimpleAddressSpace::new_arc_lock()),
         };
         let net_cfg = ConnectionConfig::from_cfg(cfg)?;
         let mut s = Self::new(net_cfg, cfg.publisher_id.clone(), data_source, None)?;
@@ -452,15 +451,15 @@ impl PubSubConnection {
 }
 
 struct PubSubDataSetInfo<'a> {
-    data_source: &'a Arc<RwLock<PubSubDataSourceT>>,
+    data_source: &'a Arc<RwLock<PubSubDataSource>>,
     datasets: &'a [PublishedDataSet],
 }
 
 impl<'a> DataSetInfo for PubSubDataSetInfo<'a> {
     fn collect_values(&self, name: &UAString) -> Vec<(Promoted, DataValue)> {
         if let Some(ds) = self.datasets.iter().find(|x| &x.name == name) {
-            let guard = self.data_source.write().unwrap();
-            let d_source = &(*guard);
+            let mut guard = self.data_source.write().unwrap();
+            let d_source = &mut (*guard);
             ds.get_data(d_source)
         } else {
             warn!("DataSet {} not found", name);
@@ -527,12 +526,12 @@ impl PubSubConnectionBuilder {
 
     pub fn build(
         &self,
-        data_source: Arc<RwLock<PubSubDataSourceT>>,
+        data_source: Arc<RwLock<dyn DataSource + Sync + Send>>,
     ) -> Result<PubSubConnection, StatusCode> {
         PubSubConnection::new(
             self.network_config.clone(),
             self.publisher_id.clone(),
-            data_source,
+            PubSubDataSource::new_arc(data_source.clone()),
             self.value_recv.clone(),
         )
     }

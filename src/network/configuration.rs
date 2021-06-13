@@ -122,6 +122,7 @@ pub struct MqttConfig {
 impl UadpConfig {
     /// new `UadpConfig`
     /// ```
+    /// use opcua_pubsub::prelude::*;
     /// let cfg = UadpConfig::new("opc.udp://239.0.0.1:4840".into());
     /// ```
     pub const fn new(url: UAString) -> Self {
@@ -132,6 +133,7 @@ impl UadpConfig {
     }
     /// new `UadpConfig` with Network interface
     /// ```
+    /// use opcua_pubsub::prelude::*;
     /// let cfg = UadpConfig::new_with_if("127.0.0.1".into(), "opc.udp://239.0.0.1:4840".into());
     /// ```
     #[must_use]

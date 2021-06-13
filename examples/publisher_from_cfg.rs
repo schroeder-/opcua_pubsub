@@ -14,7 +14,8 @@ fn main() -> Result<(), StatusCode> {
     let data = include_bytes!("../test_data/test_publisher.bin");
     let mut c = Cursor::new(data);
     let data_source = SimpleAddressSpace::new_arc_lock();
-    let p = PubSubApp::new_from_binary(&mut c, Some(data_source.clone()))?;
+    let p =
+        PubSubApp::new_from_binary(&mut c, Some(PubSubDataSource::new_arc(data_source.clone())))?;
     // Spawn a pubsub connection
     PubSubApp::run_thread(Arc::new(RwLock::new(p)));
     // Simulate a working loop where data is produced

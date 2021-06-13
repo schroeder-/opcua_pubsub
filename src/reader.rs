@@ -1,7 +1,6 @@
 // OPC UA Pubsub implementation for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
-use crate::address_space::PubSubDataSourceT;
 use crate::callback::OnPubSubReceiveValues;
 use crate::dataset::DataSetTarget;
 use crate::dataset::{PubSubFieldMetaData, SubscribedDataSet, UpdateTarget};
@@ -9,6 +8,7 @@ use crate::message::uadp::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessa
 use crate::message::UadpMessageChunkManager;
 use crate::message::UadpPayload;
 use crate::network::ReaderTransportSettings;
+use crate::prelude::PubSubDataSource;
 use crate::until::decode_extension;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -191,7 +191,7 @@ impl ReaderGroup {
         &mut self,
         topic: &UAString,
         msg: &UadpNetworkMessage,
-        data_source: &Arc<RwLock<PubSubDataSourceT>>,
+        data_source: &Arc<RwLock<PubSubDataSource>>,
         cb: &Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
     ) {
         for r in self.reader.iter_mut() {
@@ -349,7 +349,7 @@ impl DataSetReader {
         &self,
         msg: &UadpNetworkMessage,
         idx: usize,
-        data_source: &Arc<RwLock<PubSubDataSourceT>>,
+        data_source: &Arc<RwLock<PubSubDataSource>>,
         cb: &Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
     ) {
         if let UadpPayload::DataSets(dataset) = &msg.payload {
@@ -462,7 +462,7 @@ impl DataSetReader {
         &mut self,
         topic: &UAString,
         msg: &UadpNetworkMessage,
-        data_source: &Arc<RwLock<PubSubDataSourceT>>,
+        data_source: &Arc<RwLock<PubSubDataSource>>,
         cb: &Option<Arc<Mutex<dyn OnPubSubReceiveValues + Send>>>,
     ) {
         if let Some(idx) = self.check_message(topic, msg) {

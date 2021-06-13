@@ -194,7 +194,7 @@ impl PubSubApp {
     ///  Loads configuration for pubsub from binary file
     pub fn new_from_bin_file(
         path: &Path,
-        ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
+        ds: Option<Arc<RwLock<PubSubDataSource>>>,
     ) -> Result<Self, StatusCode> {
         let buffer = match fs::read(path) {
             Ok(b) => b,
@@ -208,7 +208,7 @@ impl PubSubApp {
     /// Load from PubSubConfiguration DataType
     fn new_from_cfg(
         cfg: PubSubConfigurationDataType,
-        ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
+        ds: Option<Arc<RwLock<PubSubDataSource>>>,
     ) -> Result<Self, StatusCode> {
         let mut obj = Self::new();
         obj.update(cfg, ds)?;
@@ -218,7 +218,7 @@ impl PubSubApp {
     /// Loads configuration form binary data
     pub fn new_from_binary<Stream: std::io::Read>(
         buf: &mut Stream,
-        ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
+        ds: Option<Arc<RwLock<PubSubDataSource>>>,
     ) -> Result<Self, StatusCode> {
         // Read as extension object
         let dec_opts = DecodingOptions::default();
@@ -272,7 +272,7 @@ impl PubSubApp {
     fn update(
         &mut self,
         cfg: PubSubConfigurationDataType,
-        ds: Option<Arc<RwLock<dyn PubSubDataSource + Sync + Send>>>,
+        ds: Option<Arc<RwLock<PubSubDataSource>>>,
     ) -> Result<(), StatusCode> {
         if let Some(pds_cfgs) = cfg.published_data_sets {
             for pds in pds_cfgs {
