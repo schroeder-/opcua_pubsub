@@ -101,16 +101,24 @@ fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubApp>>, S
     }
     Ok(pubsub)
 }
-
-fn main() -> Result<(), StatusCode> {
+// @TODO Move to sync
+#[tokio::main]
+async fn main() -> Result<(), StatusCode> {
     env::set_var("RUST_OPCUA_LOG", "INFO");
     opcua_console_logging::init();
     let server = create_server();
     let ns = generate_namespace(&server);
     let pubsub = generate_pubsub(ns, &server)?;
     // Run the pubsub
-    PubSubApp::run_thread(pubsub);
+    let res = PubSubApp::run_async(pubsub).await;
     // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
-    server.run();
+    tokio::task::spawn_blocking(move || {
+        server.run();
+    })
+    .await
+    .expect("Runtask");
+    for r in res {
+        r.await.expect("error")
+    }
     Ok(())
 }

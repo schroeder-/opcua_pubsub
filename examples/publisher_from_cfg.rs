@@ -7,17 +7,19 @@ use rand::prelude::*;
 use std::{
     io::Cursor,
     sync::{Arc, RwLock},
-    thread,
 };
+
 // Read the configuration from binary file instead to configure everything
-fn main() -> Result<(), StatusCode> {
+// @TODO Move to sync
+#[tokio::main]
+async fn main() -> Result<(), StatusCode> {
     let data = include_bytes!("../test_data/test_publisher.bin");
     let mut c = Cursor::new(data);
     let data_source = SimpleAddressSpace::new_arc_lock();
     let p =
         PubSubApp::new_from_binary(&mut c, Some(PubSubDataSource::new_arc(data_source.clone())))?;
     // Spawn a pubsub connection
-    PubSubApp::run_thread(Arc::new(RwLock::new(p)));
+    PubSubApp::run_async(Arc::new(RwLock::new(p))).await;
     // Simulate a working loop where data is produced
     let mut rng = rand::thread_rng();
     let mut i = 0_u32;
@@ -49,6 +51,6 @@ fn main() -> Result<(), StatusCode> {
             }
         }
         i = i.wrapping_add(1);
-        thread::sleep(time::Duration::from_millis(100));
+        tokio::time::sleep(time::Duration::from_millis(100)).await;
     }
 }

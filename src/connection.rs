@@ -28,8 +28,8 @@ use opcua_types::ObjectId;
 use opcua_types::PubSubConnectionDataType;
 use opcua_types::{ConfigurationVersionDataType, DataValue, Variant};
 use std::io::Cursor;
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::sync::mpsc::Sender;
 /// Id for a PubsubConnection
 #[derive(Debug, PartialEq, Clone)]
 pub struct PubSubConnectionId(pub u32);
@@ -69,8 +69,8 @@ pub struct PubSubReceiver {
 
 impl PubSubReceiver {
     /// Receive a UadpNetworkMessage
-    pub fn receive_msg(&self) -> Result<(String, UadpNetworkMessage), StatusCode> {
-        let (topic, data) = self.recv.receive_msg()?;
+    pub async fn receive_msg(&mut self) -> Result<(String, UadpNetworkMessage), StatusCode> {
+        let (topic, data) = self.recv.receive_msg().await?;
         let mut stream = Cursor::new(&data);
         let decoding_options = DecodingOptions::default();
 
@@ -78,12 +78,16 @@ impl PubSubReceiver {
         Ok((topic, msg))
     }
 
-    pub fn recv_to_channel(&self, tx: Sender<ConnectionAction>, id: &PubSubConnectionId) {
+    pub async fn recv_to_channel(&mut self, tx: Sender<ConnectionAction>, id: &PubSubConnectionId) {
         loop {
-            match self.receive_msg() {
+            match self.receive_msg().await {
                 Ok((topic, msg)) => {
-                    tx.send(ConnectionAction::GotUadp(id.clone(), topic, msg))
-                        .unwrap();
+                    if let Err(e) = tx
+                        .send(ConnectionAction::GotUadp(id.clone(), topic, msg))
+                        .await
+                    {
+                        warn!("Send Error {}", e);
+                    }
                 }
                 Err(err) => {
                     warn!("UadpReceiver: error reading message {}!", err);
@@ -148,7 +152,7 @@ impl PubSubConnection {
     }
 
     /// Create a new UadpReceiver
-    pub fn create_receiver(&self) -> Result<PubSubReceiver, StatusCode> {
+    pub fn create_receiver(&mut self) -> Result<PubSubReceiver, StatusCode> {
         let recv = match self.connection.create_receiver() {
             Ok(r) => r,
             Err(_) => return Err(StatusCode::BadCommunicationError),
@@ -156,11 +160,11 @@ impl PubSubConnection {
         Ok(PubSubReceiver { recv })
     }
     /// Send a UadpMessage
-    pub fn send(&self, msg: &mut UadpNetworkMessage) -> Result<(), StatusCode> {
+    pub async fn send(&self, msg: &mut UadpNetworkMessage) -> Result<(), StatusCode> {
         let mut c = Vec::new();
         msg.header.publisher_id = Some(self.publisher_id.clone());
         msg.encode(&mut c)?;
-        match self.connection.send(&c, &TransportSettings::None) {
+        match self.connection.send(&c, &TransportSettings::None).await {
             Ok(_) => Ok(()),
             Err(err) => {
                 error!("Uadp error sending message - {:?}", err);
@@ -204,14 +208,17 @@ impl PubSubConnection {
         }
     }
     /// Enable DatasetReader
-    pub fn enable(&self) {
+    pub async fn enable(&mut self) -> Result<(), StatusCode> {
+        self.connection.start().await?;
         for r in self.reader.iter() {
             for cfg in r.get_transport_cfg().iter() {
-                if let Err(err) = self.connection.subscribe(cfg) {
+                if let Err(err) = self.connection.subscribe(cfg).await {
                     warn!("Error activating broker config: {}", err);
+                    return Err(err);
                 }
             }
         }
+        Ok(())
     }
     /// Check if the connection is valid and can be used
     pub const fn is_valid(&self) -> Result<(), StatusCode> {
@@ -230,10 +237,10 @@ impl PubSubConnection {
     }
 
     /// Disable DatasetReader
-    pub fn disable(&self) {
+    pub async fn disable(&self) {
         for r in self.reader.iter() {
             for cfg in r.get_transport_cfg().iter() {
-                if let Err(err) = self.connection.unsubscribe(cfg) {
+                if let Err(err) = self.connection.unsubscribe(cfg).await {
                     warn!("Error deactivate broker config {}", err);
                 }
             }
@@ -241,7 +248,7 @@ impl PubSubConnection {
     }
 
     /// Runs all writer, that should run and returns the next call to pull
-    pub fn drive_writer(&mut self, datasets: &[PublishedDataSet]) -> std::time::Duration {
+    pub async fn drive_writer(&mut self, datasets: &[PublishedDataSet]) -> std::time::Duration {
         let mut msgs = Vec::new();
         let mut net_offset = 0;
         let inf = PubSubDataSetInfo {
@@ -265,7 +272,7 @@ impl PubSubConnection {
             let mut c = Vec::new();
             match msg.encode(&mut c) {
                 Ok(_) => {
-                    if let Err(err) = self.connection.send(&c, transport_settings) {
+                    if let Err(err) = self.connection.send(&c, transport_settings).await {
                         error!("Uadp error sending message - {:?}", err);
                     }
                 }
@@ -275,13 +282,14 @@ impl PubSubConnection {
             }
         }
         if self.discovery.has_endpoint_response() {
-            self.send_pending_discovery_endpoint(Some(self.endpoints.clone()));
+            self.send_pending_discovery_endpoint(Some(self.endpoints.clone()))
+                .await;
         }
         if self.discovery.has_meta_response() {
-            self.send_pending_metadata(datasets);
+            self.send_pending_metadata(datasets).await;
         }
         if self.discovery.has_writer_response() {
-            self.send_pending_writer_response();
+            self.send_pending_writer_response().await;
         }
         // Check next call
         let next = std::time::Duration::from_millis(500);
@@ -299,14 +307,14 @@ impl PubSubConnection {
     }
 
     /// Sends all pending endpoint responses
-    fn send_pending_discovery_endpoint(&mut self, endps: Option<Vec<EndpointDescription>>) {
+    async fn send_pending_discovery_endpoint(&mut self, endps: Option<Vec<EndpointDescription>>) {
         let msg = self
             .discovery
             .generate_endpoint_response(self.publisher_id.clone(), endps);
         let mut c = Vec::new();
         match msg.encode(&mut c) {
             Ok(_) => {
-                if let Err(err) = self.connection.send(&c, &TransportSettings::None) {
+                if let Err(err) = self.connection.send(&c, &TransportSettings::None).await {
                     error!("Uadp error sending discovery message - {:?}", err);
                 }
             }
@@ -319,7 +327,7 @@ impl PubSubConnection {
         }
     }
     /// Sends pending metadata
-    fn send_pending_metadata(&mut self, datasets: &[PublishedDataSet]) {
+    async fn send_pending_metadata(&mut self, datasets: &[PublishedDataSet]) {
         let writer: Vec<_> = self
             .writer
             .iter()
@@ -332,7 +340,7 @@ impl PubSubConnection {
             let mut c = Vec::new();
             match msg.encode(&mut c) {
                 Ok(_) => {
-                    if let Err(err) = self.connection.send(&c, transport) {
+                    if let Err(err) = self.connection.send(&c, transport).await {
                         error!("Uadp error sending discovery message - {:?}", err);
                     }
                 }
@@ -354,9 +362,26 @@ impl PubSubConnection {
         ))
     }
 
-    fn send_pending_writer_response(&mut self) {
-        self.discovery
+    async fn send_pending_writer_response(&mut self) {
+        let msgs = self
+            .discovery
             .generate_writer_response(&self.publisher_id, self.writer.iter().collect());
+        for (msg, transport) in msgs {
+            let mut c = Vec::new();
+            match msg.encode(&mut c) {
+                Ok(_) => {
+                    if let Err(err) = self.connection.send(&c, transport).await {
+                        error!("Uadp error sending discovery message - {:?}", err);
+                    }
+                }
+                Err(err) => {
+                    error!(
+                        "Uadp error decoding message DiscoveryResponse get endpoints - {}",
+                        err
+                    );
+                }
+            }
+        }
     }
 
     /// Sends Write Config
@@ -528,12 +553,12 @@ impl PubSubConnectionBuilder {
         &self,
         data_source: Arc<RwLock<dyn DataSource + Sync + Send>>,
     ) -> Result<PubSubConnection, StatusCode> {
-        PubSubConnection::new(
+        Ok(PubSubConnection::new(
             self.network_config.clone(),
             self.publisher_id.clone(),
             PubSubDataSource::new_arc(data_source.clone()),
             self.value_recv.clone(),
-        )
+        )?)
     }
 }
 

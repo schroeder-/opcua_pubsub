@@ -4,7 +4,7 @@
 use opcua_pubsub::prelude::*;
 use rand::prelude::*;
 use std::sync::{Arc, RwLock};
-use std::{thread, time};
+use std::time;
 
 /// In this example a publisher without a server is create
 /// This you to fill an simple address space with opc ua values.
@@ -69,14 +69,16 @@ fn generate_pubsub(
     Ok(Arc::new(RwLock::new(pubsub)))
 }
 
-fn main() -> Result<(), StatusCode> {
+// @TODO Move to sync
+#[tokio::main]
+async fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     let data_source = SimpleAddressSpace::new_arc_lock();
     let nodes: Vec<NodeId> = (0..3).map(|i| NodeId::new(0, i as u32)).collect();
     // Generating a pubsubconnection
     let pubsub = generate_pubsub(0, &data_source)?;
     // Spawn a pubsub connection
-    PubSubApp::run_thread(pubsub);
+    PubSubApp::run_async(pubsub).await;
     // Simulate a working loop where data is produced
     let mut rng = rand::thread_rng();
     let mut i = 0_u32;
@@ -92,6 +94,6 @@ fn main() -> Result<(), StatusCode> {
             }
         }
         i = i.wrapping_add(1);
-        thread::sleep(time::Duration::from_millis(100));
+        tokio::time::sleep(time::Duration::from_millis(100)).await;
     }
 }

@@ -3,12 +3,13 @@
 // Copyright (C) 2020 Alexander Schrode
 use opcua_pubsub::message::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage, UadpPayload};
 use opcua_pubsub::prelude::*;
-use std::{thread, time};
+use std::time;
 
 /// This example implements publishing data via uadpmessage with out application logic.
 /// If just need to send fixed data to an opc ua udap subcriber, this is all you need.
 /// Requires knowledge of the underlying protocol so you don't craft malformed messages.
-fn main() -> Result<(), StatusCode> {
+#[tokio::main]
+async fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     let url = "opc.udp://239.0.0.1:4840";
     // create a dummy datasource not need in this configuration
@@ -34,8 +35,8 @@ fn main() -> Result<(), StatusCode> {
         msg.payload = UadpPayload::DataSets(vec![UadpDataSetMessage::new(
             UadpMessageType::KeyFrameVariant(var),
         )]);
-        pubsub.send(&mut msg)?;
+        pubsub.send(&mut msg).await?;
         p = p.wrapping_add(1);
-        thread::sleep(time::Duration::from_millis(1000));
+        tokio::time::sleep(time::Duration::from_millis(1000)).await;
     }
 }

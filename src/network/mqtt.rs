@@ -46,42 +46,43 @@ mod dummy {
 }
 #[cfg(feature = "mqtt")]
 mod paho {
-    use crate::network::configuration::MqttVersion;
-
     use super::*;
+    use crate::network::configuration::MqttVersion;
+    use futures::stream::StreamExt;
     use log::{error, info, warn};
     use mqtt::ConnectOptionsBuilder;
     use opcua_types::BrokerTransportQualityOfService;
-    use std::sync::mpsc;
     use std::sync::{Arc, RwLock};
-    use std::thread;
     use std::time::Duration;
     extern crate paho_mqtt as mqtt;
     pub struct MqttConnection {
-        cli: Arc<RwLock<mqtt::Client>>,
+        init_token: mqtt::Token,
+        cli: Arc<RwLock<mqtt::AsyncClient>>,
+        rx: Option<futures::channel::mpsc::Receiver<Option<mqtt::Message>>>,
     }
 
     pub struct MqttReceiver {
-        rx: mpsc::Receiver<Option<mqtt::Message>>,
-        cli: Arc<RwLock<mqtt::Client>>,
+        rx: futures::channel::mpsc::Receiver<Option<mqtt::Message>>,
+        cli: Arc<RwLock<mqtt::AsyncClient>>,
     }
 
     impl MqttReceiver {
         /// try to receive on message, return topic and data   
-        pub fn receive_msg(&self) -> Result<(String, Vec<u8>), StatusCode> {
+        pub async fn receive_msg(&mut self) -> Result<(String, Vec<u8>), StatusCode> {
             loop {
-                match self.rx.recv() {
-                    Ok(msg) => {
+                match self.rx.next().await {
+                    Some(msg) => {
                         if let Some(msg) = msg {
                             return Ok((msg.topic().to_string(), msg.payload().to_vec()));
+                        } else {
+                            let cli = self.cli.write().unwrap();
+                            if cli.is_connected() || !try_reconnect(&cli).await {
+                                return Err(StatusCode::BadCommunicationError);
+                            }
                         }
                     }
-                    Err(err) => {
-                        warn!("recv err: {}", err);
-                        let cli = self.cli.write().unwrap();
-                        if cli.is_connected() || !try_reconnect(&cli) {
-                            return Err(StatusCode::BadCommunicationError);
-                        }
+                    None => {
+                        panic!("await failed");
                     }
                 }
             }
@@ -108,16 +109,26 @@ mod paho {
                 opts.mqtt_version(cfg.version as u32);
             }
             let o = opts.finalize();
-            let mut cli = match mqtt::Client::new(url) {
+            let mut cli = match mqtt::AsyncClient::new(url) {
                 Ok(cli) => cli,
                 Err(err) => {
                     error!("crating client from url: {} - {}", org_url, err);
                     return Err(StatusCode::BadCommunicationError);
                 }
             };
-            cli.set_timeout(Duration::from_secs(5));
-            // Connect and wait for it to complete or fail
-            match cli.connect(o) {
+            let init_token = cli.connect(o);
+
+            let rx = cli.get_stream(2500);
+            Ok(Self {
+                init_token,
+                rx: Some(rx),
+                cli: Arc::new(RwLock::new(cli)),
+            })
+        }
+
+        pub async fn start(&mut self) -> Result<(), StatusCode> {
+            let t = &mut self.init_token;
+            match t.await {
                 Err(e) => {
                     error!("Unable to connect: {:?}", e);
                     return Err(StatusCode::BadCommunicationError);
@@ -131,12 +142,10 @@ mod paho {
                     }
                 }
             }
-            Ok(Self {
-                cli: Arc::new(RwLock::new(cli)),
-            })
+            Ok(())
         }
 
-        pub fn subscribe(&self, cfg: &ReaderTransportSettings) -> Result<(), StatusCode> {
+        pub async fn subscribe(&self, cfg: &ReaderTransportSettings) -> Result<(), StatusCode> {
             let (topic, meta, qos) = match cfg {
                 ReaderTransportSettings::BrokerDataSetReader(b) => (
                     &b.queue_name,
@@ -148,7 +157,7 @@ mod paho {
             let cli = self.cli.write().unwrap();
             let res = match topic.value() {
                 Some(t) => {
-                    if let Err(err) = cli.subscribe(t, qos) {
+                    if let Err(err) = cli.subscribe(t, qos).await {
                         error!("subscribe: {} - {}", t, err);
                         Err(StatusCode::BadCommunicationError)
                     } else {
@@ -159,7 +168,7 @@ mod paho {
             };
             match meta.value() {
                 Some(t) => {
-                    if let Err(err) = cli.subscribe(t, qos) {
+                    if let Err(err) = cli.subscribe(t, qos).await {
                         error!("subscribe: {} - {}", t, err);
                         return Err(StatusCode::BadCommunicationError);
                     }
@@ -169,7 +178,7 @@ mod paho {
             res
         }
 
-        pub fn unsubscribe(&self, cfg: &ReaderTransportSettings) -> Result<(), StatusCode> {
+        pub async fn unsubscribe(&self, cfg: &ReaderTransportSettings) -> Result<(), StatusCode> {
             let (topic, meta) = match cfg {
                 ReaderTransportSettings::BrokerDataSetReader(b) => {
                     (&b.queue_name, &b.meta_data_queue_name)
@@ -179,7 +188,7 @@ mod paho {
             let cli = self.cli.write().unwrap();
             let res_topic = match topic.value() {
                 Some(t) => {
-                    if let Err(err) = cli.unsubscribe(t) {
+                    if let Err(err) = cli.unsubscribe(t).await {
                         error!("subscribe: {} - {}", t, err);
                         Err(StatusCode::BadCommunicationError)
                     } else {
@@ -190,7 +199,7 @@ mod paho {
             };
             match meta.value() {
                 Some(t) => {
-                    if let Err(err) = cli.unsubscribe(t) {
+                    if let Err(err) = cli.unsubscribe(t).await {
                         error!("subscribe: {} - {}", t, err);
                         return Err(StatusCode::BadInvalidArgument);
                     }
@@ -201,7 +210,7 @@ mod paho {
             res_topic
         }
 
-        pub fn publish(&self, b: &[u8], cfg: &TransportSettings) -> io::Result<usize> {
+        pub async fn publish(&self, b: &[u8], cfg: &TransportSettings) -> io::Result<usize> {
             let def = opcua_types::UAString::from("OpcUADefault");
             let (topic, qos) = match cfg {
                 TransportSettings::BrokerDataSetWrite(b) => (
@@ -219,19 +228,17 @@ mod paho {
             };
             let msg = mqtt::Message::from((topic, b, qos, false));
             let cli = self.cli.write().unwrap();
-            if let Err(err) = cli.publish(msg) {
+            if let Err(err) = cli.publish(msg).await {
                 warn!("error publishing {} - {}", topic, err);
             }
             Ok(0)
         }
-
-        pub fn create_receiver(&self) -> MqttReceiver {
-            let rx = {
-                let mut cli = self.cli.write().unwrap();
-                cli.start_consuming()
-            };
+        /// Creates Reciver only one is supported
+        pub fn create_receiver(&mut self) -> MqttReceiver {
+            let mut rx = None;
+            std::mem::swap(&mut self.rx, &mut rx);
             MqttReceiver {
-                rx,
+                rx: rx.unwrap(),
                 cli: self.cli.clone(),
             }
         }
@@ -245,6 +252,7 @@ mod paho {
                 .write()
                 .unwrap()
                 .disconnect(mqtt::DisconnectOptions::new())
+                .wait_for(std::time::Duration::from_millis(100))
             {
                 warn!("disconnect failed {}", err)
             }
@@ -260,14 +268,11 @@ mod paho {
         }
     }
 
-    fn try_reconnect(cli: &mqtt::Client) -> bool {
+    async fn try_reconnect(_cli: &mqtt::AsyncClient) -> bool {
         warn!("Lost Connection");
         loop {
-            thread::sleep(Duration::from_millis(5000));
-            if cli.reconnect().is_ok() {
-                info!("Successfully reconnected");
-                return true;
-            }
+            tokio::time::sleep(Duration::from_millis(5000)).await;
+            panic!("Reconnect not implemented")
         }
     }
 }

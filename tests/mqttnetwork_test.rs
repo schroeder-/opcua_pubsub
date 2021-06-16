@@ -5,7 +5,7 @@ use opcua_pubsub::app::PubSubApp;
 use opcua_pubsub::prelude::*;
 use rand::prelude::*;
 use std::sync::{Arc, RwLock};
-use std::{thread, time};
+use std::time;
 
 /// Test Mqtt
 
@@ -110,15 +110,17 @@ fn generate_pubsub(
     Ok(Arc::new(RwLock::new(pubsub)))
 }
 
-#[test]
-fn test_mqtt() -> Result<(), StatusCode> {
+// @TODO Move to sync
+#[tokio::test]
+async fn test_mqtt() -> Result<(), StatusCode> {
+    std::env::set_var("RUST_OPCUA_LOG", "trace");
     opcua_console_logging::init();
     let data_source = SimpleAddressSpace::new_arc_lock();
     let nodes: Vec<NodeId> = (0..8).map(|i| NodeId::new(0, i as u32)).collect();
     // Generating a pubsubconnection
     let pubsub = generate_pubsub(0, &data_source)?;
     // Spawn a pubsub connection
-    PubSubApp::run_thread(pubsub);
+    PubSubApp::run_async(pubsub).await;
     // Simulate a working loop where data is produced
     let mut rng = rand::thread_rng();
 
@@ -133,9 +135,9 @@ fn test_mqtt() -> Result<(), StatusCode> {
                 ds.set_value(&nodes[3], DataValue::new_now(rng.gen::<bool>()));
             }
         }
-        thread::sleep(time::Duration::from_millis(100));
+        tokio::time::sleep(time::Duration::from_millis(100)).await;
     }
-    thread::sleep(time::Duration::from_secs(5));
+    tokio::time::sleep(time::Duration::from_secs(5)).await;
     let ds = data_source.write().unwrap();
     for i in 0..4 {
         // Only check values because timestamps can differ

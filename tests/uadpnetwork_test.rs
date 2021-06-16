@@ -9,11 +9,11 @@ use opcua_pubsub::message::{UadpDataSetMessage, UadpMessageType, UadpNetworkMess
 use opcua_pubsub::prelude::*;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
+use std::iter;
 use std::sync::{Arc, RwLock};
-use std::{iter, thread};
 
-#[test]
-fn uadp_message_test() -> Result<(), StatusCode> {
+#[tokio::test]
+async fn uadp_message_test() -> Result<(), StatusCode> {
     let str_vals = vec![
         "ALFA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL", "INDIA",
         "JULIETT", "KILO", "LIMA", "MIKE", "NOVEMBER", "OSCAR", "PAPA", "QUEBEC", "ROMEO",
@@ -22,23 +22,22 @@ fn uadp_message_test() -> Result<(), StatusCode> {
     let mut sended = Vec::new();
     let url = "opc.udp://239.0.0.1:4840";
     let data_source = SimpleAddressSpace::new_arc_lock();
-    let pubsub = PubSubConnection::new(
+    let mut pubsub = PubSubConnection::new(
         UadpConfig::new(url.into()).into(),
         Variant::UInt16(1002),
         PubSubDataSource::new_arc(data_source),
         None,
     )?;
     const CNT: usize = 100;
-    let recv = pubsub.create_receiver()?;
-    let handler = thread::spawn(move || -> Result<Vec<UadpNetworkMessage>, StatusCode> {
+    let mut recv = pubsub.create_receiver()?;
+    let handler = tokio::task::spawn_local(async move {
         let mut received = Vec::new();
         for _ in 0..CNT {
-            let (_, msg) = recv.receive_msg()?;
+            let (_, msg) = recv.receive_msg().await?;
             received.push(msg);
         }
         Ok(received)
     });
-
     for p in 0..CNT {
         let mut msg = UadpNetworkMessage::new();
         msg.timestamp = Some(opcua_types::DateTime::now());
@@ -49,10 +48,10 @@ fn uadp_message_test() -> Result<(), StatusCode> {
         msg.payload = UadpPayload::DataSets(vec![UadpDataSetMessage::new(
             UadpMessageType::KeyFrameVariant(var),
         )]);
-        pubsub.send(&mut msg)?;
+        pubsub.send(&mut msg).await?;
         sended.push(msg);
     }
-    let received = handler.join().expect("Thread got error")?;
+    let received = handler.await.expect("Thread got error")?;
     assert_eq!(received.len(), sended.len());
     for x in 0..CNT {
         assert_eq!(received[x], sended[x]);
@@ -131,8 +130,8 @@ fn generate_pubsub(
     Ok(Arc::new(RwLock::new(pubsub)))
 }
 
-#[test]
-fn uadp_chunk_test() -> Result<(), StatusCode> {
+#[tokio::test]
+async fn uadp_chunk_test() -> Result<(), StatusCode> {
     std::env::set_var("RUST_OPCUA_LOG", "trace");
     opcua_console_logging::init();
     let data_source = SimpleAddressSpace::new_arc_lock();
@@ -140,7 +139,7 @@ fn uadp_chunk_test() -> Result<(), StatusCode> {
     // Generating a PubsubConnection
     let pubsub = generate_pubsub(0, &data_source)?;
     // Spawn a pubsub connection
-    PubSubApp::run_thread(pubsub);
+    PubSubApp::run_async(pubsub).await;
     // Simulate a working loop where data is produced
     let mut rng = rand::thread_rng();
     let dist = rand::distributions::Uniform::new_inclusive(3000, 5000);
@@ -155,9 +154,9 @@ fn uadp_chunk_test() -> Result<(), StatusCode> {
                 .collect();
             ds.set_value(&nodes[0], DataValue::new_now(UAString::from(str)));
         }
-        thread::sleep(time::Duration::from_millis(1000));
+        tokio::time::sleep(time::Duration::from_millis(1000)).await;
     }
-    thread::sleep(time::Duration::from_secs(5));
+    tokio::time::sleep(time::Duration::from_secs(5)).await;
     let ds = data_source.write().unwrap();
     for i in 0..1 {
         // Only check values because timestamps can differ

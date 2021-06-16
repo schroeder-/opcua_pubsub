@@ -40,12 +40,12 @@ pub enum ReaderTransportSettings {
 
 impl Connections {
     /// sends a multicast message
-    pub fn send(&self, b: &[u8], settings: &TransportSettings) -> io::Result<usize> {
+    pub async fn send(&self, b: &[u8], settings: &TransportSettings) -> io::Result<usize> {
         match self {
-            Connections::Uadp(s) => s.send(b),
+            Connections::Uadp(s) => s.send(b).await,
             Connections::Mqtt(s) => match settings {
-                TransportSettings::BrokerWrite(_cfg) => s.publish(b, settings),
-                TransportSettings::BrokerDataSetWrite(_cfg) => s.publish(b, settings),
+                TransportSettings::BrokerWrite(_cfg) => s.publish(b, settings).await,
+                TransportSettings::BrokerDataSetWrite(_cfg) => s.publish(b, settings).await,
                 TransportSettings::None => {
                     error!("mqtt need broker transport settings!");
                     Err(std::io::Error::new(
@@ -56,13 +56,22 @@ impl Connections {
             },
         }
     }
+    /// Start the connection on the sender side
+    pub async fn start(&mut self) -> Result<(), StatusCode> {
+        match self {
+            // Uadp atm has stateless so no connection building is needed
+            Connections::Uadp(_) => Ok(()),
+            Connections::Mqtt(s) => s.start().await,
+        }
+    }
+
     /// subscribe to data
-    pub fn subscribe(&self, settings: &ReaderTransportSettings) -> Result<(), StatusCode> {
+    pub async fn subscribe(&self, settings: &ReaderTransportSettings) -> Result<(), StatusCode> {
         match self {
             Connections::Uadp(_s) => Ok(()), // Not supported
             Connections::Mqtt(s) => {
                 if let ReaderTransportSettings::BrokerDataSetReader(_cfg) = settings {
-                    s.subscribe(settings)
+                    s.subscribe(settings).await
                 } else {
                     error!("mqtt need broker transport settings!");
                     Err(StatusCode::BadInvalidArgument)
@@ -71,12 +80,12 @@ impl Connections {
         }
     }
     /// unsubscribe to data
-    pub fn unsubscribe(&self, settings: &ReaderTransportSettings) -> Result<(), StatusCode> {
+    pub async fn unsubscribe(&self, settings: &ReaderTransportSettings) -> Result<(), StatusCode> {
         match self {
             Connections::Uadp(_s) => Ok(()), // Not supported
             Connections::Mqtt(s) => {
                 if let ReaderTransportSettings::BrokerDataSetReader(_cfg) = settings {
-                    s.unsubscribe(settings)
+                    s.unsubscribe(settings).await
                 } else {
                     error!("mqtt need broker transport settings!");
                     Err(StatusCode::BadInvalidArgument)
@@ -86,7 +95,7 @@ impl Connections {
     }
 
     /// creates a receiver for udp messages
-    pub fn create_receiver(&self) -> std::io::Result<ConnectionReceiver> {
+    pub fn create_receiver(&mut self) -> std::io::Result<ConnectionReceiver> {
         Ok(match self {
             Connections::Uadp(s) => ConnectionReceiver::Uadp(s.create_receiver()?),
             Connections::Mqtt(s) => ConnectionReceiver::Mqtt(s.create_receiver()),
@@ -95,10 +104,10 @@ impl Connections {
 }
 
 impl ConnectionReceiver {
-    pub fn receive_msg(&self) -> Result<(String, Vec<u8>), StatusCode> {
+    pub async fn receive_msg(&mut self) -> Result<(String, Vec<u8>), StatusCode> {
         match self {
-            ConnectionReceiver::Mqtt(s) => s.receive_msg(),
-            ConnectionReceiver::Uadp(s) => Ok(("UADP".to_string(), s.receive_msg()?)),
+            ConnectionReceiver::Mqtt(s) => s.receive_msg().await,
+            ConnectionReceiver::Uadp(s) => Ok(("UADP".to_string(), s.receive_msg().await?)),
         }
     }
 }

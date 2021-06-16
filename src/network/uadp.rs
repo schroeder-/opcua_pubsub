@@ -5,31 +5,27 @@ use log::error;
 use opcua_types::status_code::StatusCode;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::io;
-use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
+use tokio::net::UdpSocket;
 
 use super::configuration::UadpConfig;
 
 /// Uadp message configuration which is used to receive/send udp messages
 pub struct UadpNetworkConnection {
-    send_socket: Socket,
-    addr2: socket2::SockAddr,
+    send_socket: UdpSocket,
     addr: SocketAddr,
 }
 
 pub struct UadpNetworkReceiver {
-    recv_socket: Socket,
+    recv_socket: UdpSocket,
 }
 
 impl UadpNetworkReceiver {
-    pub fn receive_msg(&self) -> Result<Vec<u8>, StatusCode> {
-        let mut buf = [MaybeUninit::new(0u8); 16000];
-        match self.recv_socket.recv_from(&mut buf) {
-            Ok((len, _remote_addr)) => {
-                let data = unsafe { assume_init(&buf[..len]) };
-                Ok(data.to_vec())
-            }
+    pub async fn receive_msg(&self) -> Result<Vec<u8>, StatusCode> {
+        let mut buf = [0u8; 16000];
+        match self.recv_socket.recv_from(&mut buf).await {
+            Ok((len, _remote_addr)) => Ok(buf[..len].to_vec()),
             Err(e) => {
                 error!("Error reading udp socket {:}", e);
                 Err(StatusCode::BadCommunicationError)
@@ -53,22 +49,23 @@ impl UadpNetworkConnection {
             }
             Ok(a) => a,
         };
-        let send_socket = new_sender(&addr)?;
+        let send_socket: std::net::UdpSocket = new_sender(&addr)?.into();
         Ok(Self {
-            send_socket,
+            send_socket: UdpSocket::from_std(send_socket).unwrap(),
             addr,
-            addr2: socket2::SockAddr::from(addr),
         })
     }
 
     // creates a receiver for udp messages
     pub fn create_receiver(&self) -> std::io::Result<UadpNetworkReceiver> {
-        let recv_socket = join_multicast(self.addr)?;
-        Ok(UadpNetworkReceiver { recv_socket })
+        let recv_socket: std::net::UdpSocket = join_multicast(self.addr)?.into();
+        Ok(UadpNetworkReceiver {
+            recv_socket: UdpSocket::from_std(recv_socket).unwrap(),
+        })
     }
     /// sends a multicast message
-    pub fn send(&self, b: &[u8]) -> io::Result<usize> {
-        self.send_socket.send_to(b, &self.addr2)
+    pub async fn send(&self, b: &[u8]) -> io::Result<usize> {
+        self.send_socket.send_to(b, &self.addr).await
     }
 }
 
@@ -140,10 +137,4 @@ pub fn new_sender(addr: &SocketAddr) -> io::Result<Socket> {
         socket.set_multicast_if_v6(0)?;
     }
     Ok(socket)
-}
-
-/// Assume the `buf`fer to be initialised.
-// TODO: replace with `MaybeUninit::slice_assume_init_ref` once stable.
-unsafe fn assume_init(buf: &[MaybeUninit<u8>]) -> &[u8] {
-    &*(buf as *const [MaybeUninit<u8>] as *const [u8])
 }

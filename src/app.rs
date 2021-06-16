@@ -13,11 +13,12 @@ use opcua_types::{
     status_code::StatusCode, BinaryEncoder, DecodingOptions, ExtensionObject, ObjectId,
     PubSubConfigurationDataType, UABinaryFileDataType, Variant,
 };
-use std::sync::mpsc::{Receiver, Sender};
-use std::{fs, path::Path, sync::mpsc};
-use std::{
-    sync::{Arc, RwLock},
-    thread::JoinHandle,
+use std::sync::{Arc, RwLock};
+use std::{fs, path::Path};
+use tokio::task::JoinHandle;
+use tokio::{
+    sync::mpsc,
+    sync::mpsc::{Receiver, Sender},
 };
 
 /// Represents the PubSubApplication
@@ -67,7 +68,7 @@ impl PubSubApp {
 
     /// Removes a connection from its id
     /// If not found returns Err(BadInvalidArgument)
-    pub fn remove_connection(
+    pub async fn remove_connection(
         &mut self,
         connection_id: PubSubConnectionId,
     ) -> Result<(), StatusCode> {
@@ -77,7 +78,7 @@ impl PubSubApp {
             .position(|c| c.id() == &connection_id)
         {
             let con = &self.connections[idx];
-            con.disable();
+            con.disable().await;
             self.connections.remove(idx);
             Ok(())
         } else {
@@ -115,14 +116,16 @@ impl PubSubApp {
         }
     }
 
-    /// runs pubs in a new thread
-    /// currently 2 threads per connection are used
-    /// this will change happen under the hood
-    pub fn run_thread(pubsub: Arc<RwLock<Self>>) -> Vec<JoinHandle<()>> {
+    pub fn run_thread(_pubsub: Arc<RwLock<Self>>) -> std::thread::JoinHandle<()> {
+        todo!("Impl");
+    }
+
+    /// Runs Code Async
+    pub async fn run_async(pubsub: Arc<RwLock<Self>>) -> Vec<JoinHandle<()>> {
         {
-            let ps = pubsub.write().unwrap();
-            for con in ps.connections.iter() {
-                con.enable();
+            let mut ps = pubsub.write().unwrap();
+            for con in ps.connections.iter_mut() {
+                con.enable().await.unwrap();
             }
         }
         let mut vec = Vec::new();
@@ -130,64 +133,69 @@ impl PubSubApp {
             let ps = pubsub.write().unwrap();
             ps.connections.iter().map(|c| c.id().clone()).collect()
         };
+        let local = tokio::task::LocalSet::new();
         // @Hack implement a correcter loop
         // for new its ok to get started 2 threads per connection
-        let (input_tx, input_rx): (Sender<ConnectionAction>, Receiver<ConnectionAction>) =
-            mpsc::channel();
+        let (input_tx, mut input_rx): (Sender<ConnectionAction>, Receiver<ConnectionAction>) =
+            mpsc::channel(100);
         for id in ids.iter() {
-            let receiver = {
-                let p = pubsub.write().unwrap();
-                let c = p.get_connection(id).unwrap();
+            let mut receiver = {
+                let mut p = pubsub.write().unwrap();
+                let c = p.get_connection_mut(id).unwrap();
                 c.create_receiver().expect("Error creating receiver")
             };
             let id1 = id.clone();
             let inp = input_tx.clone();
-            vec.push(std::thread::spawn(move || {
-                receiver.recv_to_channel(inp, &id1);
+            vec.push(local.spawn_local(async move {
+                receiver.recv_to_channel(inp, &id1).await;
             }));
             let inst = pubsub.clone();
             let id2 = id.clone();
-            vec.push(std::thread::spawn(move || loop {
-                let delay = {
-                    let mut ps = inst.write().unwrap();
-                    ps.drive_writer(&id2)
-                };
-                std::thread::sleep(delay);
+            vec.push(local.spawn_local(async move {
+                loop {
+                    let delay = {
+                        let mut ps = inst.write().unwrap();
+                        ps.drive_writer(&id2).await
+                    };
+                    tokio::time::sleep(delay).await;
+                }
             }));
         }
-        vec.push(std::thread::spawn(move || loop {
-            match input_rx.recv() {
-                Ok(action) => match action {
+        vec.push(local.spawn_local(async move {
+            loop {
+                let action = input_rx.recv().await.unwrap();
+                match action {
                     ConnectionAction::GotUadp(id, topic, msg) => {
                         let mut ps = pubsub.write().unwrap();
                         let con = ps.get_connection_mut(&id).unwrap();
                         con.handle_message(&topic.into(), msg);
                     }
                     ConnectionAction::DoLoop(_id) => {}
-                },
-                Err(err) => panic!("error {}", err),
+                }
             }
         }));
         vec
     }
-    pub fn drive_writer(&mut self, id: &PubSubConnectionId) -> std::time::Duration {
+    pub async fn drive_writer(&mut self, id: &PubSubConnectionId) -> std::time::Duration {
         let con = self.connections.iter_mut().find(|x| x.id() == id);
         if let Some(con) = con {
-            con.drive_writer(&self.datasets)
+            con.drive_writer(&self.datasets).await
         } else {
             panic!("shouldn't happen")
         }
     }
     /// runs the pubsub forever
     pub fn run(self) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let s = Arc::new(RwLock::new(self));
-        let ths = Self::run_thread(s.clone());
+        let future = Self::run_async(s.clone());
+        let ths = rt.block_on(future);
         for th in ths {
-            th.join().unwrap();
+            rt.block_on(th).unwrap();
         }
         let s = s.write().unwrap();
         for con in s.connections.iter() {
-            con.disable();
+            rt.block_on(con.disable());
         }
     }
 
@@ -352,8 +360,8 @@ impl Default for PubSubApp {
 mod tests {
     use super::*;
     use std::io::Cursor;
-    #[test]
-    fn test_binary_config() -> Result<(), StatusCode> {
+    #[tokio::test]
+    async fn test_binary_config() -> Result<(), StatusCode> {
         let data = include_bytes!("../test_data/test_publisher.bin");
         let mut c = Cursor::new(data);
         PubSubApp::new_from_binary(&mut c, None)?;

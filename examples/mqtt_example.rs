@@ -4,7 +4,7 @@
 use opcua_pubsub::prelude::*;
 use rand::prelude::*;
 use std::sync::{Arc, Mutex, RwLock};
-use std::{thread, time};
+use std::time;
 
 /// Example uses Mqtt with Uadp encoding
 /// The difference to uadp is, that you have to configure
@@ -108,7 +108,9 @@ fn on_value(reader: &DataSetReader, dataset: &[UpdateTarget]) {
     }
 }
 
-fn main() -> Result<(), StatusCode> {
+// @TODO Move to sync
+#[tokio::main]
+async fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     let data_source = SimpleAddressSpace::new_arc_lock();
     let nodes: Vec<NodeId> = (0..8).map(|i| NodeId::new(0, i as u32)).collect();
@@ -117,7 +119,7 @@ fn main() -> Result<(), StatusCode> {
     let pubsub = generate_pubsub(0, &data_source, cb)?;
 
     // Spawn a pubsub connection
-    PubSubApp::run_thread(Arc::new(RwLock::new(pubsub)));
+    PubSubApp::run_async(Arc::new(RwLock::new(pubsub))).await;
     // Simulate a working loop where data is produced
     let mut rng = rand::thread_rng();
     let mut i = 0_usize;
@@ -132,7 +134,7 @@ fn main() -> Result<(), StatusCode> {
                 ds.set_value(&nodes[3], DataValue::new_now(rng.gen::<bool>()));
             }
         }
-        thread::sleep(time::Duration::from_millis(100));
+        tokio::time::sleep(time::Duration::from_millis(100)).await;
         i = i.wrapping_add(1);
     }
 }
