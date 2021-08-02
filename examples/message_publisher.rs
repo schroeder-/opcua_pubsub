@@ -11,7 +11,7 @@ use std::time;
 #[tokio::main]
 async fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
-    let url = "opc.udp://239.0.0.1:4840";
+    let url = "opc.udp://225.0.0.1:4840";
     // create a dummy datasource not need in this configuration
     let data_source = SimpleAddressSpace::new_arc_lock();
     let uadp_config = UadpConfig::new(url.into());

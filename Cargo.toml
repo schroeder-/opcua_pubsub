@@ -16,7 +16,7 @@ log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 bitflags = "1.2.1"
 url = "2.2.2"
-paho-mqtt = {version = "0.9", optional = true}
+paho-mqtt = {git = "https://github.com/eclipse/paho.mqtt.rust.git", optional = true}
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 
@@ -24,7 +24,7 @@ futures = "0.3"
 client-integration = ["opcua-client"]
 server-integration = ["opcua-server"]
 mqtt = ["paho-mqtt"]
-default = ["server-integration", "mqtt", "client-integration"]
+default = ["server-integration", "client-integration"] # , "mqtt"]
 
 [dev-dependencies]
 # opcua-console-logging = "0.8.0"

@@ -3,8 +3,9 @@
 // Copyright (C) 2021 Alexander Schrode
 use opcua_pubsub::prelude::*;
 use rand::prelude::*;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time;
+use tokio::sync::RwLock;
 
 /// In this example a publisher without a server is create
 /// This you to fill an simple address space with opc ua values.
@@ -14,7 +15,7 @@ use std::time;
 // Generates the Publisher
 fn generate_pubsub(
     ns: u16,
-    addr: &Arc<RwLock<SimpleAddressSpace>>,
+    addr: &Arc<std::sync::RwLock<SimpleAddressSpace>>,
 ) -> Result<Arc<RwLock<PubSubApp>>, StatusCode> {
     let url = "opc.udp://224.0.0.22:4840";
     // Create App

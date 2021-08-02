@@ -4,10 +4,10 @@
 use core::time;
 use opcua_pubsub::prelude::*;
 use rand::prelude::*;
-use std::{
-    io::Cursor,
-    sync::{Arc, RwLock},
-};
+use std::io::Cursor;
+
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 // Read the configuration from binary file instead to configure everything
 // @TODO Move to sync

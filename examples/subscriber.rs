@@ -6,7 +6,8 @@
 use opcua_pubsub::prelude::*;
 use opcua_server::prelude::*;
 use std::env;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 fn create_server() -> Server {
     let port = 4850;
@@ -49,7 +50,7 @@ fn generate_namespace(server: &Server) -> u16 {
 }
 
 // Generates the subscriber
-fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubApp>>, StatusCode> {
+async fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubApp>>, StatusCode> {
     let url = "opc.udp://224.0.0.22:4840";
     // Create a pubsub connection
     let pubsub = Arc::new(RwLock::new(PubSubApp::new()));
@@ -96,7 +97,7 @@ fn generate_pubsub(ns: u16, server: &Server) -> Result<Arc<RwLock<PubSubApp>>, S
     rg.add_dataset_reader(dsr);
     connection.add_reader_group(rg);
     {
-        let mut ps = pubsub.write().unwrap();
+        let mut ps = pubsub.write().await;
         ps.add_connection(connection)?;
     }
     Ok(pubsub)
@@ -108,7 +109,7 @@ async fn main() -> Result<(), StatusCode> {
     opcua_console_logging::init();
     let server = create_server();
     let ns = generate_namespace(&server);
-    let pubsub = generate_pubsub(ns, &server)?;
+    let pubsub = generate_pubsub(ns, &server).await?;
     // Run the pubsub
     let res = PubSubApp::run_async(pubsub).await;
     // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate

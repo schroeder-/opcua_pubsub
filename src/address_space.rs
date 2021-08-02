@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 use crate::dataset::{DataSetTarget, PubSubFieldMetaData};
-use log::error;
+use log::{error, trace};
 use opcua_types::{
     status_code::StatusCode, DataSetFieldFlags, DataValue, DateTime, EventFilter, FieldMetaData,
     Guid, NodeId, Variant, VariantTypeId,
@@ -118,16 +118,19 @@ impl DataSource for SimpleAddressSpace {
     /// Just get the datavalue or return DataSource
     fn get_pubsub_values(&mut self, nids: &[NodeId]) -> Vec<Result<DataValue, StatusCode>> {
         nids.iter()
-            .map(|n| match self.node_map.get(n) {
+            .map(|n| {
+                trace!("SimpleAddressSpace: Get {}", n);
+                match self.node_map.get(n) {
                 Some(v) => Ok(v.clone()),
                 None => Err(StatusCode::BadNodeIdUnknown),
-            })
+            }})
             .collect()
     }
     /// Just set the datavalue for nid
     fn set_pubsub_values(&mut self, data: Vec<(&DataSetTarget, DataValue, &PubSubFieldMetaData)>) {
         for (target, dv, _) in data {
             let nid = &target.0.target_node_id;
+            trace!("SimpleAddressSpace: Update nid: {}, {:?}", nid, dv);
             match &target.update_dv(dv) {
                 Ok(res) => {
                     self.node_map.insert(nid.clone(), res.clone());
@@ -164,6 +167,7 @@ impl DataSource for opcua_client::prelude::Session {
     }
 
     fn set_pubsub_values(&mut self, data: Vec<(&DataSetTarget, DataValue, &PubSubFieldMetaData)>) {
+        
         let v: Vec<_> = data
             .into_iter()
             .map(|(target, dv, _)| WriteValue {
@@ -311,7 +315,7 @@ impl DataSource for AddressSpace {
             if let Some(v) = self.find_variable_mut(nid) {
                 if let Err(err) = target.update_variable(dv, v) {
                     error!("Couldn't update variable {} -> {}", nid, err);
-                }
+                } 
             } else {
                 error!("Node {} not found -> {}", nid, meta.name());
             }

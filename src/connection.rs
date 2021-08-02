@@ -10,10 +10,8 @@ use crate::message::UadpDiscoveryRequest;
 use crate::message::UadpMessageChunkManager;
 use crate::message::UadpNetworkMessage;
 use crate::message::UadpPayload;
-use crate::network::configuration::*;
-use crate::network::{
-    ConnectionReceiver, Connections, MqttConnection, TransportSettings, UadpNetworkConnection,
-};
+use crate::network::{configuration::*, ReaderTransportSettings};
+use crate::network::{Connections, MqttConnection, TransportSettings, UadpNetworkConnection};
 use crate::prelude::PubSubDataSource;
 use crate::prelude::SimpleAddressSpace;
 use crate::reader::ReaderGroup;
@@ -29,7 +27,7 @@ use opcua_types::PubSubConnectionDataType;
 use opcua_types::{ConfigurationVersionDataType, DataValue, Variant};
 use std::io::Cursor;
 use std::sync::{Arc, Mutex, RwLock};
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{mpsc, mpsc::Sender};
 /// Id for a PubsubConnection
 #[derive(Debug, PartialEq, Clone)]
 pub struct PubSubConnectionId(pub u32);
@@ -51,7 +49,9 @@ pub struct PubSubConnection {
     name: UAString,
     network_config: ConnectionConfig,
     publisher_id: Variant,
-    connection: Connections,
+    rx: mpsc::Receiver<Result<(String, Vec<u8>), StatusCode>>,
+    tx: mpsc::Sender<ConnectionMessage>,
+    handle: tokio::task::JoinHandle<()>,
     writer: Vec<WriterGroup>,
     reader: Vec<ReaderGroup>,
     network_message_no: u16,
@@ -63,19 +63,14 @@ pub struct PubSubConnection {
     discovery: DiscoveryHandler,
 }
 
-pub struct PubSubReceiver {
-    recv: ConnectionReceiver,
+pub struct PubSubReceiver<'a> {
+    con: &'a mut PubSubConnection,
 }
 
-impl PubSubReceiver {
+impl<'a> PubSubReceiver<'a> {
     /// Receive a UadpNetworkMessage
     pub async fn receive_msg(&mut self) -> Result<(String, UadpNetworkMessage), StatusCode> {
-        let (topic, data) = self.recv.receive_msg().await?;
-        let mut stream = Cursor::new(&data);
-        let decoding_options = DecodingOptions::default();
-
-        let msg = UadpNetworkMessage::decode(&mut stream, &decoding_options)?;
-        Ok((topic, msg))
+        self.con.recv().await
     }
 
     pub async fn recv_to_channel(&mut self, tx: Sender<ConnectionAction>, id: &PubSubConnectionId) {
@@ -97,6 +92,18 @@ impl PubSubReceiver {
     }
 }
 
+enum ConnectionMessage {
+    Start,
+    Shutdown,
+    SendMsg(Vec<u8>, TransportSettings), // @TODO dont send transport settings with every call
+    Subscribe(ReaderTransportSettings),
+    Unsubscribe(ReaderTransportSettings),
+    Stop,
+}
+
+type ConRecv = tokio::sync::mpsc::Receiver<Result<(String, Vec<u8>), StatusCode>>;
+type ConSender = tokio::sync::mpsc::Sender<ConnectionMessage>;
+
 impl PubSubConnection {
     /// Creates new Pubsub Connection
     pub fn new(
@@ -114,7 +121,6 @@ impl PubSubConnection {
                     return Err(StatusCode::BadCommunicationError);
                 }
             },
-            #[cfg(feature = "mqtt")]
             ConnectionConfig::Mqtt(cfg) => Connections::Mqtt(MqttConnection::new(cfg)?),
         };
         // Check if publisher_id is valid the specs only allow UIntegers and String as id!
@@ -126,12 +132,14 @@ impl PubSubConnection {
             | Variant::UInt64(_) => {}
             _ => return Err(StatusCode::BadTypeMismatch),
         }
-
+        let (rx, tx, handle) = Self::start_connection(connection);
         Ok(Self {
             name: "Con".into(),
             network_config,
             publisher_id,
-            connection,
+            rx,
+            tx,
+            handle,
             writer: Vec::new(),
             reader: Vec::new(),
             network_message_no: 0,
@@ -143,6 +151,47 @@ impl PubSubConnection {
             discovery: DiscoveryHandler::new(),
         })
     }
+
+    fn start_connection(con: Connections) -> (ConRecv, ConSender, tokio::task::JoinHandle<()>) {
+        let (isend, recv) = tokio::sync::mpsc::channel::<Result<(String, Vec<u8>), StatusCode>>(10);
+        let (send, mut irecv) = mpsc::channel::<ConnectionMessage>(10);
+        let handle = tokio::spawn(async move  {
+            let con = con;
+            let mut recv = con.create_receiver().expect("Error creating receiver");
+            loop {
+                //@TODO start read after start and stop then
+                tokio::select! {
+                    val = irecv.recv() => {
+                        match val.unwrap(){
+                            ConnectionMessage::Start=>{
+                                con.start().await.expect("Start error");
+                            },
+                            ConnectionMessage::Shutdown =>{
+                                break;
+                            },
+                            ConnectionMessage::SendMsg(msg, transport) =>{
+                                con.send(&msg, &transport).await.expect("Send error");
+                            },
+                            ConnectionMessage::Subscribe(settings) => {
+                                con.subscribe(&settings).await.expect("Subscribe error");
+                            },
+                            ConnectionMessage::Unsubscribe(settings) => {
+                                con.unsubscribe(&settings).await.expect("Subscribe error");
+                            },
+                            ConnectionMessage::Stop => {
+                                //@TODO stop recv
+                            }
+                        }
+                    }
+                    val = recv.receive_msg() => {
+                        isend.send(val).await.expect("Recv connection data error");
+                    }
+                }
+            }
+        });
+        (recv, send, handle)
+    }
+
     /// add data value recv callback when values change
     pub fn set_data_value_recv(
         &mut self,
@@ -152,25 +201,55 @@ impl PubSubConnection {
     }
 
     /// Create a new UadpReceiver
-    pub fn create_receiver(&mut self) -> Result<PubSubReceiver, StatusCode> {
-        let recv = match self.connection.create_receiver() {
-            Ok(r) => r,
-            Err(_) => return Err(StatusCode::BadCommunicationError),
-        };
-        Ok(PubSubReceiver { recv })
+    pub fn create_receiver<'a>(&'a mut self) -> Result<PubSubReceiver, StatusCode> {
+        Ok(PubSubReceiver { con: self })
     }
     /// Send a UadpMessage
     pub async fn send(&self, msg: &mut UadpNetworkMessage) -> Result<(), StatusCode> {
         let mut c = Vec::new();
         msg.header.publisher_id = Some(self.publisher_id.clone());
         msg.encode(&mut c)?;
-        match self.connection.send(&c, &TransportSettings::None).await {
+        match self
+            .tx
+            .send(ConnectionMessage::SendMsg(c, TransportSettings::None))
+            .await
+        {
             Ok(_) => Ok(()),
-            Err(err) => {
-                error!("Uadp error sending message - {:?}", err);
-                Err(StatusCode::BadCommunicationError)
+            Err(_) => Err(StatusCode::BadCommunicationError),
+        }
+    }
+
+    pub async fn recv(&mut self) -> Result<(String, UadpNetworkMessage), StatusCode> {
+        let (topic, data) = self.rx.recv().await.unwrap()?;
+        let mut stream = Cursor::new(&data);
+        let decoding_options = DecodingOptions::default();
+
+        let msg = UadpNetworkMessage::decode(&mut stream, &decoding_options)?;
+        Ok((topic, msg))
+    }
+
+
+    pub async fn recv_timeout(&mut self, timeout: std::time::Duration) -> Result<(String, UadpNetworkMessage), StatusCode> {
+        let tout = tokio::time::sleep(timeout);
+        tokio::pin!(tout);
+        tokio::select! {
+            res = self.rx.recv() => {
+                match res.unwrap(){
+                    Ok((topic, data)) => {
+                        let mut stream = Cursor::new(&data);
+                        let decoding_options = DecodingOptions::default();
+                
+                        let msg = UadpNetworkMessage::decode(&mut stream, &decoding_options)?;
+                        Ok((topic, msg))
+                    },
+                    Err(e) => Err(e),
+                }
+            }
+            _ = &mut tout => {
+                Err(StatusCode::BadTimeout)
             }
         }
+
     }
 
     pub fn add_writer_group(&mut self, group: WriterGroup) {
@@ -209,12 +288,18 @@ impl PubSubConnection {
     }
     /// Enable DatasetReader
     pub async fn enable(&mut self) -> Result<(), StatusCode> {
-        self.connection.start().await?;
+        if let Err(_) = self.tx.send(ConnectionMessage::Start).await {
+            return Err(StatusCode::BadCommunicationError);
+        }
         for r in self.reader.iter() {
             for cfg in r.get_transport_cfg().iter() {
-                if let Err(err) = self.connection.subscribe(cfg).await {
+                if let Err(err) = self
+                    .tx
+                    .send(ConnectionMessage::Subscribe((*cfg).clone()))
+                    .await
+                {
                     warn!("Error activating broker config: {}", err);
-                    return Err(err);
+                    return Err(StatusCode::BadCommunicationError);
                 }
             }
         }
@@ -238,9 +323,16 @@ impl PubSubConnection {
 
     /// Disable DatasetReader
     pub async fn disable(&self) {
+        if let Err(e) = self.tx.send(ConnectionMessage::Stop).await {
+            warn!("Error deactivate connection {}", e);
+        }
         for r in self.reader.iter() {
             for cfg in r.get_transport_cfg().iter() {
-                if let Err(err) = self.connection.unsubscribe(cfg).await {
+                if let Err(err) = self
+                    .tx
+                    .send(ConnectionMessage::Unsubscribe((*cfg).clone()))
+                    .await
+                {
                     warn!("Error deactivate broker config {}", err);
                 }
             }
@@ -272,8 +364,12 @@ impl PubSubConnection {
             let mut c = Vec::new();
             match msg.encode(&mut c) {
                 Ok(_) => {
-                    if let Err(err) = self.connection.send(&c, transport_settings).await {
-                        error!("Uadp error sending message - {:?}", err);
+                    if let Err(err) = self
+                        .tx
+                        .send(ConnectionMessage::SendMsg(c, (*transport_settings).clone()))
+                        .await
+                    {
+                        error!("Uadp error sending message - {}", err);
                     }
                 }
                 Err(err) => {
@@ -314,8 +410,12 @@ impl PubSubConnection {
         let mut c = Vec::new();
         match msg.encode(&mut c) {
             Ok(_) => {
-                if let Err(err) = self.connection.send(&c, &TransportSettings::None).await {
-                    error!("Uadp error sending discovery message - {:?}", err);
+                if let Err(err) = self
+                    .tx
+                    .send(ConnectionMessage::SendMsg(c, TransportSettings::None))
+                    .await
+                {
+                    error!("Uadp error sending discovery message - {}", err);
                 }
             }
             Err(err) => {
@@ -326,6 +426,32 @@ impl PubSubConnection {
             }
         }
     }
+
+    //@TODO remove datasets
+    pub async fn run_loop(self, datasets: Arc<tokio::sync::Mutex<Vec<PublishedDataSet>>>) {
+        let s = Arc::new(tokio::sync::Mutex::new(self));
+        let o = s.clone();
+        tokio::task::spawn(async move {
+            let mut o = o.lock().await;
+            loop {
+                match o.recv().await {
+                    Ok((topic, msg)) => o.handle_message(&topic.into(), msg),
+                    Err(err) => {
+                        error!("Message: {:?}", err);
+                    }
+                }
+            }
+        });
+        loop {
+            let dur = {
+                let ds = datasets.lock().await;
+                let mut s = s.lock().await;
+                s.drive_writer(&ds).await
+            };
+            tokio::time::sleep(dur).await;
+        }
+    }
+
     /// Sends pending metadata
     async fn send_pending_metadata(&mut self, datasets: &[PublishedDataSet]) {
         let writer: Vec<_> = self
@@ -340,8 +466,12 @@ impl PubSubConnection {
             let mut c = Vec::new();
             match msg.encode(&mut c) {
                 Ok(_) => {
-                    if let Err(err) = self.connection.send(&c, transport).await {
-                        error!("Uadp error sending discovery message - {:?}", err);
+                    if let Err(err) = self
+                        .tx
+                        .send(ConnectionMessage::SendMsg(c, transport.clone()))
+                        .await
+                    {
+                        error!("Uadp error sending discovery message - {}", err);
                     }
                 }
                 Err(err) => {
@@ -370,8 +500,12 @@ impl PubSubConnection {
             let mut c = Vec::new();
             match msg.encode(&mut c) {
                 Ok(_) => {
-                    if let Err(err) = self.connection.send(&c, transport).await {
-                        error!("Uadp error sending discovery message - {:?}", err);
+                    if let Err(err) = self
+                        .tx
+                        .send(ConnectionMessage::SendMsg(c, transport.clone()))
+                        .await
+                    {
+                        error!("Uadp error sending discovery message - {}", err);
                     }
                 }
                 Err(err) => {
@@ -472,6 +606,32 @@ impl PubSubConnection {
     /// Get a reference to the pub sub connection's name.
     pub const fn name(&self) -> &UAString {
         &self.name
+    }
+}
+
+impl Drop for PubSubConnection {
+    fn drop(&mut self) {
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let stx = self.tx.clone();
+        // This doesnt work
+        tokio::task::spawn(
+          async move {
+                warn!("call");
+                if let Err(e) = stx
+                    .send_timeout(
+                        ConnectionMessage::Shutdown,
+                        std::time::Duration::from_millis(100),
+                    )
+                    .await
+                {
+                    warn!("drop timeout error: #{}", e);
+                }
+                tx.send(()).unwrap();
+            });
+    
+        if rx.recv_timeout(std::time::Duration::from_millis(300)).is_err(){
+            warn!("Recv Timeout")
+        }
     }
 }
 

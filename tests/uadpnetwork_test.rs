@@ -4,16 +4,20 @@
 
 // In this integration test the uadp communication is tested
 use core::time;
+use log::{info, trace};
 use opcua_pubsub::connection::PubSubConnection;
 use opcua_pubsub::message::{UadpDataSetMessage, UadpMessageType, UadpNetworkMessage, UadpPayload};
 use opcua_pubsub::prelude::*;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use std::iter;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[tokio::test]
 async fn uadp_message_test() -> Result<(), StatusCode> {
+    std::env::set_var("RUST_OPCUA_LOG", "trace");
+    opcua_console_logging::init();
     let str_vals = vec![
         "ALFA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL", "INDIA",
         "JULIETT", "KILO", "LIMA", "MIKE", "NOVEMBER", "OSCAR", "PAPA", "QUEBEC", "ROMEO",
@@ -22,22 +26,37 @@ async fn uadp_message_test() -> Result<(), StatusCode> {
     let mut sended = Vec::new();
     let url = "opc.udp://239.0.0.1:4840";
     let data_source = SimpleAddressSpace::new_arc_lock();
-    let mut pubsub = PubSubConnection::new(
+    let pubsub = Arc::new(RwLock::new(PubSubConnection::new(
         UadpConfig::new(url.into()).into(),
         Variant::UInt16(1002),
         PubSubDataSource::new_arc(data_source),
         None,
-    )?;
+    )
+    .unwrap()));
+    let pubsub2 = pubsub.clone();
     const CNT: usize = 100;
-    let mut recv = pubsub.create_receiver()?;
-    let handler = tokio::task::spawn_local(async move {
+    let task = tokio::task::spawn(async move {
         let mut received = Vec::new();
-        for _ in 0..CNT {
-            let (_, msg) = recv.receive_msg().await?;
+        for _ in 0 .. CNT{
+            let (_, msg) = loop{
+                info!("Unwrap");
+                let mut ps = pubsub.write().await;
+                info!("Unwrap1");
+                let res = ps.recv_timeout(std::time::Duration::from_millis(50)).await;
+                match res {
+                    Ok(res) => break res,
+                    Err(e) => if e != StatusCode::BadTimeout{
+                        panic!("Reading failed {}", e);
+                    },
+                }
+                info!("Timeout");
+                
+            };
             received.push(msg);
+            trace!("Recv");
         }
-        Ok(received)
-    });
+        received
+    });   
     for p in 0..CNT {
         let mut msg = UadpNetworkMessage::new();
         msg.timestamp = Some(opcua_types::DateTime::now());
@@ -48,21 +67,28 @@ async fn uadp_message_test() -> Result<(), StatusCode> {
         msg.payload = UadpPayload::DataSets(vec![UadpDataSetMessage::new(
             UadpMessageType::KeyFrameVariant(var),
         )]);
-        pubsub.send(&mut msg).await?;
+        {
+            trace!("w unwrap");
+            let ps = pubsub2.write().await;
+            trace!("w 2");
+            ps.send(&mut msg).await?;
+        }
+        trace!("Send");
         sended.push(msg);
     }
-    let received = handler.await.expect("Thread got error")?;
+    let received = task.await.unwrap();
     assert_eq!(received.len(), sended.len());
     for x in 0..CNT {
         assert_eq!(received[x], sended[x]);
     }
+    //pubsub2.drop();
     Ok(())
 }
 
 // Generates the Publisher
 fn generate_pubsub(
     ns: u16,
-    addr: &Arc<RwLock<SimpleAddressSpace>>,
+    addr: &Arc<std::sync::RwLock<SimpleAddressSpace>>,
 ) -> Result<Arc<RwLock<PubSubApp>>, StatusCode> {
     let url: UAString = "opc.udp://237.0.0.1:4840".into();
     // Create Application
@@ -139,19 +165,20 @@ async fn uadp_chunk_test() -> Result<(), StatusCode> {
     // Generating a PubsubConnection
     let pubsub = generate_pubsub(0, &data_source)?;
     // Spawn a pubsub connection
-    PubSubApp::run_async(pubsub).await;
+    let th = PubSubApp::run_async(pubsub.clone());
     // Simulate a working loop where data is produced
+    info!("Started");
     let mut rng = rand::thread_rng();
     let dist = rand::distributions::Uniform::new_inclusive(3000, 5000);
     for _ in 0..30 {
         {
-            let mut ds = data_source.write().unwrap();
             let sz = rng.sample(dist);
             let str: String = iter::repeat(())
                 .map(|()| rng.sample(Alphanumeric))
                 .map(char::from)
                 .take(sz)
                 .collect();
+            let mut ds = data_source.write().unwrap();
             ds.set_value(&nodes[0], DataValue::new_now(UAString::from(str)));
         }
         tokio::time::sleep(time::Duration::from_millis(1000)).await;
@@ -165,5 +192,10 @@ async fn uadp_chunk_test() -> Result<(), StatusCode> {
             ds.get_value(&nodes[i + 4]).unwrap().value
         )
     }
+    {   
+        let mut ps = pubsub.write().await;
+        ps.shutdown();
+    }
+    th.await;
     Ok(())
 }

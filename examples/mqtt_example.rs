@@ -3,8 +3,9 @@
 // Copyright (C) 2021 Alexander Schrode
 use opcua_pubsub::prelude::*;
 use rand::prelude::*;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time;
+use tokio::sync::RwLock;
 
 /// Example uses Mqtt with Uadp encoding
 /// The difference to uadp is, that you have to configure
@@ -13,7 +14,7 @@ use std::time;
 // Generates the Publisher
 fn generate_pubsub(
     ns: u16,
-    addr: &Arc<RwLock<SimpleAddressSpace>>,
+    addr: &Arc<std::sync::RwLock<SimpleAddressSpace>>,
     cb: Arc<Mutex<dyn OnPubSubReceiveValues + Send>>,
 ) -> Result<PubSubApp, StatusCode> {
     let topic: UAString = "OPCUA_TEST/Data".into();

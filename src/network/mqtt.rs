@@ -18,24 +18,30 @@ mod dummy {
             MqttReceiver {}
         }
 
-        pub fn receive_msg(&self) -> Result<(String, Vec<u8>), StatusCode> {
+        pub async fn receive_msg(&self) -> Result<(String, Vec<u8>), StatusCode> {
             Err(StatusCode::BadNotImplemented)
         }
     }
 
     impl MqttConnection {
+        #[allow(dead_code)]
         pub fn new(_url: &MqttConfig) -> Result<MqttConnection, StatusCode> {
             Err(StatusCode::BadNotImplemented)
         }
-        pub fn publish(&self, _b: &[u8], _cfg: &TransportSettings) -> io::Result<usize> {
-            Ok(0)
-        }
 
-        pub fn subscribe(&self, _cfg: &ReaderTransportSettings) -> Result<(), StatusCode> {
+        pub async fn start(&mut self) -> Result<(), StatusCode> {
             Ok(())
         }
 
-        pub fn unsubscribe(&self, _cfg: &ReaderTransportSettings) -> Result<(), StatusCode> {
+        pub async fn publish(&self, _b: &[u8], _cfg: &TransportSettings) -> io::Result<usize> {
+            Ok(0)
+        }
+
+        pub async fn subscribe(&self, _cfg: &ReaderTransportSettings) -> Result<(), StatusCode> {
+            Ok(())
+        }
+
+        pub async fn unsubscribe(&self, _cfg: &ReaderTransportSettings) -> Result<(), StatusCode> {
             Ok(())
         }
 
@@ -55,14 +61,42 @@ mod paho {
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
     extern crate paho_mqtt as mqtt;
+    struct MqttTask {
+        init_token: mqtt::Token,
+        cli: Arc<RwLock<mqtt::AsyncClient>>,
+        rx: mqtt::AsyncReceiver<Option<mqtt::Message>>,
+    }
+
+    impl MqttTask {
+        pub async fn receive_msg(&mut self) -> Result<(String, Vec<u8>), StatusCode> {
+            loop {
+                match self.rx.next().await {
+                    Some(msg) => {
+                        if let Some(msg) = msg {
+                            return Ok((msg.topic().to_string(), msg.payload().to_vec()));
+                        } else {
+                            let cli = self.cli.write().unwrap();
+                            if cli.is_connected() || !try_reconnect(&cli).await {
+                                return Err(StatusCode::BadCommunicationError);
+                            }
+                        }
+                    }
+                    None => {
+                        panic!("await failed");
+                    }
+                }
+            }
+        }
+    }
+
     pub struct MqttConnection {
         init_token: mqtt::Token,
         cli: Arc<RwLock<mqtt::AsyncClient>>,
-        rx: Option<futures::channel::mpsc::Receiver<Option<mqtt::Message>>>,
+        rx: Option<mqtt::AsyncReceiver<Option<mqtt::Message>>>,
     }
 
     pub struct MqttReceiver {
-        rx: futures::channel::mpsc::Receiver<Option<mqtt::Message>>,
+        rx: mqtt::AsyncReceiver<Option<mqtt::Message>>,
         cli: Arc<RwLock<mqtt::AsyncClient>>,
     }
 
@@ -258,6 +292,7 @@ mod paho {
             }
         }
     }
+
     const fn qos_from(requested_delivery_guarantee: BrokerTransportQualityOfService) -> i32 {
         match requested_delivery_guarantee {
             BrokerTransportQualityOfService::NotSpecified
@@ -278,6 +313,6 @@ mod paho {
 }
 
 #[cfg(not(feature = "mqtt"))]
-pub(crate) use dummy::*;
+pub use dummy::*;
 #[cfg(feature = "mqtt")]
 pub use paho::*;

@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2021 Alexander Schrode
 use crate::{
-    connection::{ConnectionAction, PubSubConnection, PubSubConnectionId},
+    connection::{PubSubConnection, PubSubConnectionId},
     dataset::PublishedDataSetId,
     prelude::{PubSubDataSource, PublishedDataSet},
     until::decode_extension,
 };
 use core::panic;
-use log::error;
+use log::{error, info, warn};
 use opcua_types::{
     status_code::StatusCode, BinaryEncoder, DecodingOptions, ExtensionObject, ObjectId,
     PubSubConfigurationDataType, UABinaryFileDataType, Variant,
@@ -16,10 +16,6 @@ use opcua_types::{
 use std::sync::{Arc, RwLock};
 use std::{fs, path::Path};
 use tokio::task::JoinHandle;
-use tokio::{
-    sync::mpsc,
-    sync::mpsc::{Receiver, Sender},
-};
 
 /// Represents the PubSubApplication
 /// TopLevel of PubSub
@@ -121,60 +117,25 @@ impl PubSubApp {
     }
 
     /// Runs Code Async
-    pub async fn run_async(pubsub: Arc<RwLock<Self>>) -> Vec<JoinHandle<()>> {
+    pub async fn run_async(pubsub: Arc<tokio::sync::RwLock<Self>>) -> Vec<JoinHandle<()>> {
         {
-            let mut ps = pubsub.write().unwrap();
+            let pubsub = pubsub.clone();
+            let mut ps = pubsub.write().await;
             for con in ps.connections.iter_mut() {
                 con.enable().await.unwrap();
             }
+            let dt = Arc::new(tokio::sync::Mutex::new(ps.datasets.to_vec()));
+            //@TODO improve
+            ps.connections
+                .iter_mut()
+                .map(|con| {
+                    let ds = dt.clone();
+                    tokio::task::spawn(async {
+                        con.run_loop(ds).await;
+                    })
+                })
+                .collect()
         }
-        let mut vec = Vec::new();
-        let ids: Vec<PubSubConnectionId> = {
-            let ps = pubsub.write().unwrap();
-            ps.connections.iter().map(|c| c.id().clone()).collect()
-        };
-        let local = tokio::task::LocalSet::new();
-        // @Hack implement a correcter loop
-        // for new its ok to get started 2 threads per connection
-        let (input_tx, mut input_rx): (Sender<ConnectionAction>, Receiver<ConnectionAction>) =
-            mpsc::channel(100);
-        for id in ids.iter() {
-            let mut receiver = {
-                let mut p = pubsub.write().unwrap();
-                let c = p.get_connection_mut(id).unwrap();
-                c.create_receiver().expect("Error creating receiver")
-            };
-            let id1 = id.clone();
-            let inp = input_tx.clone();
-            vec.push(local.spawn_local(async move {
-                receiver.recv_to_channel(inp, &id1).await;
-            }));
-            let inst = pubsub.clone();
-            let id2 = id.clone();
-            vec.push(local.spawn_local(async move {
-                loop {
-                    let delay = {
-                        let mut ps = inst.write().unwrap();
-                        ps.drive_writer(&id2).await
-                    };
-                    tokio::time::sleep(delay).await;
-                }
-            }));
-        }
-        vec.push(local.spawn_local(async move {
-            loop {
-                let action = input_rx.recv().await.unwrap();
-                match action {
-                    ConnectionAction::GotUadp(id, topic, msg) => {
-                        let mut ps = pubsub.write().unwrap();
-                        let con = ps.get_connection_mut(&id).unwrap();
-                        con.handle_message(&topic.into(), msg);
-                    }
-                    ConnectionAction::DoLoop(_id) => {}
-                }
-            }
-        }));
-        vec
     }
     pub async fn drive_writer(&mut self, id: &PubSubConnectionId) -> std::time::Duration {
         let con = self.connections.iter_mut().find(|x| x.id() == id);
@@ -187,16 +148,18 @@ impl PubSubApp {
     /// runs the pubsub forever
     pub fn run(self) {
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let s = Arc::new(RwLock::new(self));
+        let s = Arc::new(tokio::sync::RwLock::new(self));
         let future = Self::run_async(s.clone());
         let ths = rt.block_on(future);
         for th in ths {
             rt.block_on(th).unwrap();
         }
-        let s = s.write().unwrap();
-        for con in s.connections.iter() {
-            rt.block_on(con.disable());
-        }
+        rt.block_on(async {
+            let s = s.write().await;
+            for con in s.connections.iter() {
+                con.disable().await;
+            }
+        });
     }
 
     ///  Loads configuration for pubsub from binary file
@@ -223,12 +186,17 @@ impl PubSubApp {
         Ok(obj)
     }
 
+    pub fn shutdown(&mut self){
+        self.connections.clear();
+    }   
+
     /// Loads configuration form binary data
     pub fn new_from_binary<Stream: std::io::Read>(
         buf: &mut Stream,
         ds: Option<Arc<RwLock<PubSubDataSource>>>,
     ) -> Result<Self, StatusCode> {
         // Read as extension object
+        
         let dec_opts = DecodingOptions::default();
         let eobj = match ExtensionObject::decode(buf, &dec_opts) {
             Ok(b) => b,
@@ -356,15 +324,27 @@ impl Default for PubSubApp {
     }
 }
 
+impl Drop for PubSubApp{
+    fn drop(&mut self) {
+        // Drop all connections
+        self.connections.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Cursor;
     #[tokio::test]
     async fn test_binary_config() -> Result<(), StatusCode> {
+        std::env::set_var("RUST_OPCUA_LOG", "trace");
+        opcua_console_logging::init();
         let data = include_bytes!("../test_data/test_publisher.bin");
         let mut c = Cursor::new(data);
-        PubSubApp::new_from_binary(&mut c, None)?;
+        let mut p  = PubSubApp::new_from_binary(&mut c, None)?;
+        let cfg = p.generate_cfg()?;
+        info!("{}", cfg.enabled);
+        p.shutdown();
         Ok(())
     }
 }

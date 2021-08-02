@@ -16,12 +16,13 @@ pub struct UadpNetworkConnection {
     send_socket: UdpSocket,
     addr: SocketAddr,
 }
-
+/// UadpReceiver to recive messages
 pub struct UadpNetworkReceiver {
     recv_socket: UdpSocket,
 }
 
 impl UadpNetworkReceiver {
+    /// Receive Message a msg
     pub async fn receive_msg(&self) -> Result<Vec<u8>, StatusCode> {
         let mut buf = [0u8; 16000];
         match self.recv_socket.recv_from(&mut buf).await {
@@ -75,7 +76,7 @@ impl UadpNetworkConnection {
 #[cfg(windows)]
 fn bind_multicast(socket: &Socket, addr: &SocketAddr) -> io::Result<()> {
     socket.set_reuse_address(true)?;
-    socket.set_broadcast(true)?;
+    //socket.set_broadcast(true)?;
     let addr = match *addr {
         SocketAddr::V4(addr) => SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), addr.port()),
         SocketAddr::V6(addr) => {
@@ -88,7 +89,6 @@ fn bind_multicast(socket: &Socket, addr: &SocketAddr) -> io::Result<()> {
 // On unixes we bind to the multicast address, which causes multicast packets to be filtered
 #[cfg(unix)]
 fn bind_multicast(socket: &Socket, addr: &SocketAddr) -> io::Result<()> {
-    socket.set_broadcast(true)?;
     socket.bind(&socket2::SockAddr::from(*addr))
 }
 
@@ -137,4 +137,25 @@ pub fn new_sender(addr: &SocketAddr) -> io::Result<Socket> {
         socket.set_multicast_if_v6(0)?;
     }
     Ok(socket)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::str;
+    #[tokio::test]
+    async fn network_test() -> Result<(), StatusCode> {
+        let cfg1 = UadpConfig::new("opc.udp://225.0.0.1:34254".into());
+        let cfg2 = UadpConfig::new("opc.udp://225.0.0.1:34254".into());
+        let net1 = UadpNetworkConnection::new(&cfg1).unwrap();
+        let net2 = UadpNetworkConnection::new(&cfg2).unwrap();
+        let recv = net2.create_receiver().unwrap();
+        let sb = "1234566";
+        let res1 = net1.send(sb.as_bytes());
+        let res2 = recv.receive_msg();
+        res1.await.unwrap();
+        let rb = res2.await.unwrap();
+        assert_eq!(sb, str::from_utf8(&rb).unwrap());
+        Ok(())
+    }
 }

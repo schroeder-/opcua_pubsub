@@ -29,6 +29,7 @@ pub trait DataSetInfo {
     fn get_config_version(&self, name: &UAString) -> ConfigurationVersionDataType;
 }
 /// Published Dataset, connects server variables to data writer
+#[derive(Clone)]
 pub struct PublishedDataSet {
     pub name: UAString,
     config_version: ConfigurationVersionDataType,
@@ -37,7 +38,7 @@ pub struct PublishedDataSet {
     guid: Guid,
 }
 /// Configures one variable in a dataset
-#[allow(dead_code)]
+#[derive(Clone)]
 pub struct DataSetField {
     field_name_alias: UAString,
     config_version: ConfigurationVersionDataType,

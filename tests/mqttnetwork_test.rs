@@ -110,6 +110,7 @@ fn generate_pubsub(
     Ok(Arc::new(RwLock::new(pubsub)))
 }
 
+#[cfg(feature = "mqtt")]
 // @TODO Move to sync
 #[tokio::test]
 async fn test_mqtt() -> Result<(), StatusCode> {
