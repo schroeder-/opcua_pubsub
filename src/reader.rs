@@ -9,10 +9,10 @@ use crate::message::UadpMessageChunkManager;
 use crate::message::UadpPayload;
 use crate::network::ReaderTransportSettings;
 use crate::prelude::PubSubDataSource;
-use crate::until::decode_extension;
+use crate::until::{decode_extension, is_sequence_newer};
 use std::sync::{Arc, Mutex, RwLock};
 
-use log::trace;
+use log::{debug, trace};
 use log::{error, warn};
 use opcua_types::BrokerDataSetReaderTransportDataType;
 use opcua_types::ConfigurationVersionDataType;
@@ -46,6 +46,7 @@ pub struct DataSetReaderBuilder {
 pub struct DataSetReader {
     name: UAString,
     publisher_id: Variant,
+    last_seqence: Option<u16>,
     writer_group_id: u16,
     dataset_writer_id: u16,
     fields: Vec<PubSubFieldMetaData>,
@@ -117,6 +118,7 @@ impl DataSetReaderBuilder {
             sub_data_set: SubscribedDataSet::new(),
             transport_settings: self.transport_settings.clone(),
             dechunker: UadpMessageChunkManager::new(self.dataset_writer_id),
+            last_seqence: None
         }
     }
 }
@@ -226,7 +228,7 @@ impl DataSetReader {
         // Find out if the writer_groupe is contained in the message
         if let Some(gp) = &msg.group_header {
             if let Some(wg_id) = gp.writer_group_id {
-                if wg_id == self.writer_group_id {
+                if wg_id == self.writer_group_id{
                     // Find the dataset if contained
                     if let Some(idx) = msg
                         .dataset_payload
@@ -251,6 +253,7 @@ impl DataSetReader {
             sub_data_set: SubscribedDataSet::new(),
             transport_settings: ReaderTransportSettings::None,
             dechunker: UadpMessageChunkManager::new(cfg.data_set_writer_id),
+            last_seqence: None
         };
         s.update(cfg)?;
         Ok(s)
@@ -474,6 +477,18 @@ impl DataSetReader {
                     self.parse_msg(&msg, idx, data_source, cb);
                 }
             } else {
+                // Check if sequence_no exists and is newer
+                if let Some(gp) = &msg.group_header{
+                    if let Some(seq) = gp.sequence_no{
+                        if let Some(last) = self.last_seqence{
+                            if !is_sequence_newer(seq, last){
+                                debug!("rejected msg because of old seqence_no");
+                                return;
+                            }
+                        }
+                        self.last_seqence = Some(seq);
+                    }
+                }
                 self.parse_msg(msg, idx, data_source, cb);
             };
         }

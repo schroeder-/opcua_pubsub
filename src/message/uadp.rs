@@ -18,6 +18,8 @@ use opcua_types::{process_decode_io_result, read_u16, read_u32, read_u64, read_u
 use opcua_types::{process_encode_io_result, write_u16, write_u32, write_u8};
 use std::convert::TryFrom;
 use std::io::{Read, Write};
+
+use crate::until::is_sequence_newer;
 /// Uadp Message flags See OPC Unified Architecture, Part 14 7.2.2.2.2
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub(super) struct MessageHeaderFlags(u32);
@@ -1556,10 +1558,6 @@ pub struct UadpMessageChunkManager {
     dataset_id: u16,
 }
 
-fn is_sequence_newer(sequence_no: u16, last_sequence_no: u16) -> bool {
-    let v = (65535_u32 + u32::from(sequence_no) - u32::from(last_sequence_no)) % 65536;
-    v < 16384
-}
 
 impl UadpMessageChunkManager {
     pub const fn new(dataset_id: u16) -> Self {

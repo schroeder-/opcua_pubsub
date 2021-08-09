@@ -20,3 +20,9 @@ pub fn decode_extension<T: BinaryEncoder<T>>(
         Err(StatusCode::BadDecodingError)
     }
 }
+
+
+pub (crate) fn is_sequence_newer(sequence_no: u16, last_sequence_no: u16) -> bool {
+    let v = (65535_u32 + u32::from(sequence_no) - u32::from(last_sequence_no)) % 65536;
+    v < 16384
+}
